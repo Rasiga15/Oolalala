@@ -1,67 +1,80 @@
+// src/pages/Login.tsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, ArrowRight } from 'lucide-react';
+import { Phone, ArrowRight, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/common/Button';
-import { Input } from '../components/common/Input';
-import { FcGoogle } from 'react-icons/fc';
-import { FaApple } from 'react-icons/fa';
+import { useAuth } from '../contexts/AuthContext';
 
 export const Login = () => {
   const [phone, setPhone] = useState('');
-  const [error, setError] = useState('');
+  const [pin, setPin] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [pinError, setPinError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, '');
     if (value.length <= 10) {
       setPhone(value);
-      setError('');
+      setPhoneError('');
     }
   };
 
-  const handleGetOTP = async () => {
-    if (phone.length !== 10) {
-      setError('Please enter a valid 10-digit mobile number');
-      toast.error('Invalid mobile number');
-      return;
+  const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/\D/g, '');
+    if (value.length <= 6) {
+      setPin(value);
+      setPinError('');
     }
+  };
+
+  const handleLogin = async () => {
+    let isValid = true;
+
+    // Validate phone
+    if (phone.length !== 10) {
+      setPhoneError('Please enter a valid 10-digit mobile number');
+      toast.error('Invalid mobile number');
+      isValid = false;
+    }
+
+    // Validate PIN (6 digits)
+    if (pin.length !== 6) {
+      setPinError('Please enter a valid 6-digit PIN');
+      toast.error('Invalid PIN');
+      isValid = false;
+    }
+
+    if (!isValid) return;
 
     setIsLoading(true);
 
     try {
-      // Send phone number to backend to request OTP
-      const response = await sendPhoneToBackend(phone);
+      const loginSuccess = await login(phone, pin);
       
-      if (response.success) {
-        // Store phone temporarily for OTP verification
-        sessionStorage.setItem('loginPhone', phone);
-        toast.success('OTP sent successfully!');
-        navigate('/verify-login-otp');
-      } else {
-        toast.error('Failed to send OTP. Please try again.');
+      if (loginSuccess) {
+        // Navigate to home page on successful login
+        navigate('/');
       }
+      // If login fails, error is shown by the login function
+      
     } catch (error) {
-      console.error('Error sending OTP:', error);
+      console.error('Error during login:', error);
       toast.error('Network error. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Simulate backend API call to send OTP
-  const sendPhoneToBackend = async (phone: string) => {
-    // Replace this with your actual backend API call
-    return new Promise<{ success: boolean }>((resolve) => {
-      setTimeout(() => {
-        resolve({ success: true });
-      }, 1000);
-    });
+  const handleSignup = () => {
+    navigate('/signup');
   };
 
-  const handleSocialLogin = (provider: string) => {
-    toast.info(`${provider} login coming soon!`);
+  const handleForgotPassword = () => {
+    navigate('/forgot-password');
   };
 
   return (
@@ -69,65 +82,86 @@ export const Login = () => {
       <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full space-y-8 animate-in fade-in zoom-in duration-500">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-gradient">Welcome to OOLALALA</h1>
-          <p className="text-muted-foreground">Enter your mobile number to continue</p>
+          <p className="text-muted-foreground">Enter your mobile number and PIN to login</p>
         </div>
 
         <div className="space-y-6">
-          <div>
-            <Input
-              type="tel"
-              value={phone}
-              onChange={handlePhoneChange}
-              placeholder="Enter 10-digit mobile number"
-              error={error}
-              maxLength={10}
-              className="text-lg"
-            />
-            <p className="mt-2 text-xs text-muted-foreground">
+          {/* Mobile Number Input */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">Mobile Number</label>
+            <div className="relative">
+              <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
+                <Phone className="h-5 w-5 text-gray-400" />
+              </div>
+              <input
+                type="tel"
+                value={phone}
+                onChange={handlePhoneChange}
+                placeholder="Enter 10-digit mobile number"
+                maxLength={10}
+                className={`w-full pl-10 pr-4 py-3 text-lg border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
+                  phoneError ? 'border-red-500' : 'border-gray-300'
+                }`}
+              />
+            </div>
+            {phoneError && <p className="text-red-500 text-sm mt-1">{phoneError}</p>}
+            <p className="text-xs text-muted-foreground">
               {phone.length}/10 digits
             </p>
           </div>
 
+          {/* PIN Input (6 digits) */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">PIN (6 digits)</label>
+            <div className="relative">
+              <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
+                <Lock className="h-5 w-5 text-gray-400" />
+              </div>
+              <input
+                type="password"
+                value={pin}
+                onChange={handlePinChange}
+                placeholder="Enter 6-digit PIN"
+                maxLength={6}
+                className={`w-full pl-10 pr-4 py-3 text-lg border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
+                  pinError ? 'border-red-500' : 'border-gray-300'
+                }`}
+              />
+            </div>
+            {pinError && <p className="text-red-500 text-sm mt-1">{pinError}</p>}
+            <p className="text-xs text-muted-foreground">
+              {pin.length}/6 digits
+            </p>
+          </div>
+
+          {/* Login Button */}
           <Button
             variant="hero"
             size="lg"
             className="w-full"
-            onClick={handleGetOTP}
-            disabled={phone.length !== 10 || isLoading}
+            onClick={handleLogin}
+            disabled={phone.length !== 10 || pin.length !== 6 || isLoading}
           >
-            <Phone className="h-5 w-5 mr-2" />
-            {isLoading ? 'Sending...' : 'Get OTP'}
+            <Lock className="h-5 w-5 mr-2" />
+            {isLoading ? 'Logging in...' : 'Login'}
             <ArrowRight className="h-5 w-5 ml-2" />
           </Button>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-white text-muted-foreground">Or continue with</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => handleSocialLogin('Google')}
-              className="w-full"
+          {/* New User? Signup and Forgot Password in same row */}
+          <div className="flex justify-between items-center pt-4">
+            <button
+              onClick={handleSignup}
+              className="text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors"
             >
-              <FcGoogle className="h-6 w-6 mr-2" />
-              Google
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => handleSocialLogin('Apple')}
-              className="w-full"
+              New user? Signup
+            </button>
+            
+            <button
+              onClick={handleForgotPassword}
+              className="text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors"
             >
-              <FaApple className="h-6 w-6 mr-2" />
-              Apple
-            </Button>
+              Forgot PIN?
+            </button>
           </div>
         </div>
 

@@ -1,198 +1,110 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { 
-  Car, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Facebook, 
-  Instagram, 
-  Linkedin, 
-  X 
-} from 'lucide-react';
+import React from 'react';
+import { FaLeaf } from 'react-icons/fa';
+// Import your logo image
+import rectangleLogo from '../../assets/Rectangle.svg'; // Adjust path as needed
 
-// Scroll to top function
-const scrollToTop = () => {
-  window.scrollTo({
-    top: 0,
-    behavior: 'smooth'
-  });
-};
-
+// Change from const Footer = () => { to export const Footer = () => {
 export const Footer = () => {
-  const currentYear = new Date().getFullYear();
-  const navigate = useNavigate();
-
-  // Handle navigation with scroll to top
-  const handleNavigation = (path: string) => {
-    navigate(path);
-    scrollToTop();
-  };
-
-  const footerSections = [
-    {
-      title: 'Company',
-      links: [
-        { label: 'About Us', href: '/about' },
-        { label: 'How It Works', href: '/how-it-works' },
-        { label: 'Careers', href: '/careers' },
-        { label: 'Press', href: '/press' },
-      ],
-    },
-    {
-      title: 'Services',
-      links: [
-        { label: 'Find Ride', href: '/find-ride' },
-        { label: 'Offer Ride', href: '/offer-ride' },
-        { label: 'Safety', href: '/safety' },
-        { label: 'Wallet', href: '/wallet' },
-      ],
-    },
-    {
-      title: 'Support',
-      links: [
-        { label: 'Help Center', href: '/help' },
-        { label: 'Safety Guidelines', href: '/safety' },
-        { label: 'Terms of Service', href: '/terms' },
-        { label: 'Privacy Policy', href: '/privacy' },
-      ],
-    },
-    {
-      title: 'Contact',
-      links: [
-        { 
-          label: 'support@oolalala.com', 
-          href: 'mailto:support@oolalala.com', 
-          icon: Mail,
-          isExternal: true 
-        },
-        { 
-          label: '+1 (555) 123-4567', 
-          href: 'tel:+15551234567', 
-          icon: Phone,
-          isExternal: true 
-        },
-        { 
-          label: 'Chennai, India', 
-          href: '#', 
-          icon: MapPin 
-        },
-      ],
-    },
-  ];
-
-  const socialLinks = [
-    { icon: Facebook, href: '#', label: 'Facebook' },
-    { icon: X, href: '#', label: 'Twitter (X)' },
-    { icon: Instagram, href: '#', label: 'Instagram' },
-    { icon: Linkedin, href: '#', label: 'LinkedIn' },
-  ];
-
   return (
-    <footer className="bg-gradient-to-br from-blue-900 to-blue-950 text-white">
-      <div className="container mx-auto px-4 sm:px-6 py-12 lg:py-16">
+    <footer className="bg-gray-50 border-t border-gray-200">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          {/* Logo and Tagline - Now with rectangle.svg image */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              {/* Added rectangle.svg image */}
+             <img 
+  src={rectangleLogo} 
+  alt="Oolalala Logo"
+  className="h-12 w-auto max-w-[200px] object-contain"
+/>
 
-        {/* Main Footer Content */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12 mb-12">
-          {footerSections.map((section, index) => (
-            <div key={index} className="space-y-4">
-              <h3 className="text-lg font-bold text-white/90">{section.title}</h3>
-              <ul className="space-y-3">
-                {section.links.map((link, linkIndex) => (
-                  <li key={linkIndex}>
-                    {link.isExternal ? (
-                      // External links
-                      <a
-                        href={link.href}
-                        className="flex items-center gap-2 text-white/70 hover:text-white transition-colors duration-200 text-sm"
-                        target={link.href.startsWith('#') ? '_self' : '_blank'}
-                        rel="noopener noreferrer"
-                      >
-                        {link.icon && <link.icon className="h-4 w-4" />}
-                        {link.label}
-                      </a>
-                    ) : (
-                      // Internal navigation links with scroll to top
-                      <button
-                        onClick={() => handleNavigation(link.href)}
-                        className="flex items-center gap-2 text-white/70 hover:text-white transition-colors duration-200 text-sm w-full text-left"
-                      >
-                        {link.icon && <link.icon className="h-4 w-4" />}
-                        {link.label}
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              
+             
             </div>
-          ))}
-        </div>
-
-        {/* Divider */}
-        <div className="border-t border-white/20 mb-8"></div>
-
-        {/* Bottom Footer */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-
-          {/* Logo & Copyright */}
-          <div className="flex flex-col sm:flex-row items-center gap-4">
-            <button
-              onClick={() => handleNavigation('/')}
-              className="flex items-center space-x-2 hover:opacity-90 transition-opacity"
-            >
-              <div className="bg-white p-2 rounded-lg">
-                <Car className="h-6 w-6 text-blue-900" />
-              </div>
-              <span className="text-2xl font-bold">OOLALALA</span>
-            </button>
-            <p className="text-sm text-white/60">
-              © {currentYear} OOLALALA. All rights reserved.
+            <p className="text-gray-500 text-sm italic leading-relaxed">
+              "Oolalala Carpooling makes daily travel smart, safe, and affordable. Share rides with ease, eco-friendly journey every time."
             </p>
           </div>
 
-          {/* Social Links */}
-          <div className="flex items-center gap-4">
-            {socialLinks.map((social, index) => (
-              <a
-                key={index}
-                href={social.href}
-                aria-label={social.label}
-                className="bg-white/10 p-2 rounded-full hover:bg-white/20 transition-all duration-200 hover:scale-110"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <social.icon className="h-5 w-5" />
-              </a>
-            ))}
+          {/* Company Links - Updated with bold text */}
+          <div>
+            <h3 className="text-gray-400 font-medium mb-4 text-sm uppercase tracking-wide">Company</h3>
+            <ul className="space-y-3">
+              <li>
+                <a href="#" className="text-gray-700 hover:text-[#21409A] transition-colors text-sm font-bold">
+                  Find Ride
+                </a>
+              </li>
+              <li>
+                <a href="#" className="text-gray-700 hover:text-[#21409A] transition-colors text-sm font-bold">
+                  Offer Ride
+                </a>
+              </li>
+              <li>
+                <a href="#" className="text-gray-700 hover:text-[#21409A] transition-colors text-sm font-bold">
+                  History
+                </a>
+              </li>
+              <li>
+                <a href="#" className="text-gray-700 hover:text-[#21409A] transition-colors text-sm font-bold">
+                  Wallet
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Help Links - Updated with bold text */}
+          <div>
+            <h3 className="text-gray-400 font-medium mb-4 text-sm uppercase tracking-wide">Help</h3>
+            <ul className="space-y-3">
+              <li>
+                <a href="#" className="text-gray-700 hover:text-[#21409A] transition-colors text-sm font-bold">
+                  Customer Support
+                </a>
+              </li>
+              <li>
+                <a href="#" className="text-gray-700 hover:text-[#21409A] transition-colors text-sm font-bold">
+                  24/7 Support
+                </a>
+              </li>
+              <li>
+                <a href="#" className="text-gray-700 hover:text-[#21409A] transition-colors text-sm font-bold">
+                  Terms & Conditions
+                </a>
+              </li>
+              <li>
+                <a href="#" className="text-gray-700 hover:text-[#21409A] transition-colors text-sm font-bold">
+                  Privacy Policy
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Newsletter */}
+          <div>
+            <h3 className="text-gray-400 font-medium mb-4 text-sm uppercase tracking-wide">Newsletter</h3>
+            <div className="space-y-3">
+              <input
+                type="email"
+                placeholder="Enter your email address"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#21409A] focus:border-transparent"
+              />
+              <button className="w-full bg-[#21409A] text-white py-2.5 px-4 rounded-md text-sm font-bold hover:bg-[#21409A]/90 transition-colors shadow-md hover:shadow-lg">
+                Subscribe Now
+              </button>
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Additional Info */}
-        <div className="mt-8 pt-8 border-t border-white/20 text-center">
-          <p className="text-sm text-white/60">
-            OOLALALA is committed to providing safe, reliable, and affordable ride-sharing services.
-          </p>
-        </div>
-
-        {/* Scroll to Top Button - Mobile */}
-        <button
-          onClick={scrollToTop}
-          className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-full shadow-lg lg:hidden transition-all duration-200 hover:scale-110 z-50"
-          aria-label="Scroll to top"
-        >
-          <svg 
-            xmlns="http://www.w3.org/2000/svg" 
-            className="h-5 w-5" 
-            viewBox="0 0 20 20" 
-            fill="currentColor"
-          >
-            <path 
-              fillRule="evenodd" 
-              d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" 
-              clipRule="evenodd" 
-            />
-          </svg>
-        </button>
+      {/* Copyright */}
+      <div className="border-t border-gray-200 py-4">
+        <p className="text-center text-gray-500 text-sm">
+          © Copyright 2025. All Rights Reserved by Oolalala
+        </p>
       </div>
     </footer>
   );
 };
+
