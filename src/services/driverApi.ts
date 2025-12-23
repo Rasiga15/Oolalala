@@ -1,4 +1,4 @@
-// const BASE_URL = 'http://18.61.216.57:4500/api';
+// const BASE_URL = 'https://api-dev.oolalala.com/api';
 
 // export interface Driver {
 //   id: number;
@@ -257,7 +257,7 @@
 
 
 // src/services/driversApi.ts
-const BASE_URL = 'http://18.61.216.57:4500/api';
+const BASE_URL = 'https://api-dev.oolalala.com/api';
 
 export interface Driver {
   id: number;

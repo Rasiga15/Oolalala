@@ -127,7 +127,7 @@ const Profile: React.FC = () => {
         if (result.data.profileImage) {
           let imageUrl = result.data.profileImage;
           if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('data:')) {
-            imageUrl = `http://18.61.216.57:4500${imageUrl}`;
+            imageUrl = `https://api-dev.oolalala.com${imageUrl}`;
           }
           setProfileImage(imageUrl);
         }

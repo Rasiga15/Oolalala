@@ -1,5 +1,5 @@
 // src/services/rideApi.ts - FIXED VERSION
-const BASE_URL = 'http://18.61.216.57:4500/api';
+const BASE_URL = 'https://api-dev.oolalala.com/api';
 
 export interface Stop {
   stop_name: string;

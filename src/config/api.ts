@@ -1,4 +1,4 @@
-export const BASE_URL = 'http://18.61.216.57:4500';
+export const BASE_URL = 'https://api-dev.oolalala.com';
 export const API_TIMEOUT = 10000;
 
 export interface ApiResponse<T = any> {
