@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { FiCamera, FiChevronLeft, FiSettings, FiCheck, FiAlertCircle } from 'react-icons/fi';
+import React, { useState, useEffect } from 'react';
+import { FiChevronLeft, FiSettings, FiCheck, FiAlertCircle } from 'react-icons/fi';
 import { MdPerson, MdDirectionsCar, MdPhone, MdBadge, MdPeople, MdBusiness } from 'react-icons/md';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -24,11 +24,6 @@ const Profile: React.FC = () => {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [profileData, setProfileData] = useState<any>(null);
-  const [cameraAccessing, setCameraAccessing] = useState(false);
-  const [showCameraPreview, setShowCameraPreview] = useState(false);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // All possible setup items
   const allSetupItems: SetupItem[] = [
@@ -119,15 +114,6 @@ const Profile: React.FC = () => {
     loadProfileData();
   }, [user]);
 
-  // Clean up camera stream on unmount
-  useEffect(() => {
-    return () => {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [cameraStream]);
-
   const loadProfileData = async () => {
     try {
       const result = await ProfileApiService.getBasicProfile();
@@ -148,325 +134,6 @@ const Profile: React.FC = () => {
       }
     } catch (error) {
       console.error('Error loading profile data:', error);
-    }
-  };
-
-  // Function to stop camera stream
-  const stopCameraStream = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => {
-        track.stop();
-      });
-      setCameraStream(null);
-    }
-    setShowCameraPreview(false);
-  };
-
-  // Handle camera capture
-  const handleCameraCapture = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-
-    try {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // Draw video to canvas
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // Convert canvas to Blob with compression
-        canvas.toBlob(async (blob) => {
-          if (blob) {
-            // Compress the image
-            const compressedBlob = await compressImageToUnder2MB(blob);
-            
-            const file = new File([compressedBlob], `profile-photo-${Date.now()}.jpg`, { 
-              type: 'image/jpeg',
-              lastModified: Date.now()
-            });
-            
-            console.log('Captured image size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
-            
-            // Check if image is under 2MB
-            if (file.size > 2 * 1024 * 1024) {
-              toast.error('Image is still too large. Please try again with better lighting.');
-              stopCameraStream();
-              return;
-            }
-            
-            stopCameraStream();
-            await uploadProfileImage(file);
-          }
-        }, 'image/jpeg', 0.7); // Start with 0.7 quality
-      }
-    } catch (error) {
-      console.error('Error capturing photo:', error);
-      toast.error('Failed to capture photo');
-      stopCameraStream();
-    }
-  };
-
-  // Compress image to under 2MB
-  const compressImageToUnder2MB = (blob: Blob, maxAttempts = 3, attempt = 1): Promise<Blob> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        
-        // Set max dimensions to reduce size
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
-        
-        // Calculate new dimensions while maintaining aspect ratio
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height = Math.round(height * MAX_WIDTH / width);
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width = Math.round(width * MAX_HEIGHT / height);
-            height = MAX_HEIGHT;
-          }
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          
-          // Reduce quality based on attempt number
-          let quality = 0.8 - (attempt * 0.2); // Start with 0.8, then 0.6, then 0.4
-          if (quality < 0.4) quality = 0.4; // Minimum quality 0.4
-          
-          // Convert to Blob with compression
-          canvas.toBlob(
-            (compressedBlob) => {
-              if (compressedBlob) {
-                console.log(`Compression attempt ${attempt}:`, (compressedBlob.size / 1024 / 1024).toFixed(2), 'MB');
-                
-                // If still too large and more attempts left, try again with lower quality
-                if (compressedBlob.size > 2 * 1024 * 1024 && attempt < maxAttempts) {
-                  resolve(compressImageToUnder2MB(compressedBlob, maxAttempts, attempt + 1));
-                } else {
-                  resolve(compressedBlob);
-                }
-              } else {
-                resolve(blob); // Fallback to original
-              }
-            },
-            'image/jpeg',
-            quality
-          );
-        } else {
-          resolve(blob);
-        }
-      };
-      
-      img.onerror = () => {
-        console.error('Error loading image for compression');
-        resolve(blob); // Fallback to original
-      };
-      
-      img.src = URL.createObjectURL(blob);
-    });
-  };
-
-  // Upload profile image
-  const uploadProfileImage = async (file: File) => {
-    try {
-      setLoading(true);
-      
-      // Validate image
-      const validImageTypes = ['image/jpeg', 'image/jpg'];
-      if (!validImageTypes.includes(file.type)) {
-        toast.error('Only JPEG images are allowed');
-        return;
-      }
-      
-      if (file.size > 2 * 1024 * 1024) { // 2MB
-        toast.error('Image size should be less than 2MB');
-        return;
-      }
-      
-      toast.info('Uploading profile picture...');
-      
-      // Preview the image
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfileImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-      
-      // Create FormData with all required fields
-      const formData = new FormData();
-      formData.append('profile_image', file);
-      
-      // Always append basic required fields
-      const firstName = profileData?.firstName || user?.first_name || '';
-      const lastName = profileData?.lastName || user?.last_name || '';
-      const dateOfBirth = profileData?.dateOfBirth || user?.date_of_birth || '';
-      const gender = profileData?.gender || user?.gender || 'male';
-      const multiVehicle = profileData?.multiVehicle || false;
-      
-      formData.append('firstName', firstName);
-      formData.append('lastName', lastName);
-      formData.append('dateOfBirth', dateOfBirth);
-      formData.append('gender', gender);
-      formData.append('multiVehicle', multiVehicle.toString());
-      
-      // Append optional fields if they exist
-      if (profileData?.location) {
-        formData.append('location', profileData.location);
-      }
-      
-      if (profileData?.publishRide !== undefined) {
-        formData.append('publishRide', profileData.publishRide.toString());
-      }
-      
-      if (profileData?.partnerType) {
-        formData.append('partnerType', profileData.partnerType);
-      }
-      
-      if (profileData?.businessName) {
-        formData.append('businessName', profileData.businessName);
-      }
-      
-      // Log FormData for debugging
-      console.log('Sending FormData with keys:');
-      for (let [key, value] of formData.entries()) {
-        console.log(`${key}:`, value);
-      }
-      
-      // Call API
-      const result = await ProfileApiService.updateBasicProfile(formData);
-      
-      if (result.success) {
-        toast.success('Profile picture updated successfully!');
-        // Reload profile data
-        await loadProfileData();
-        
-        // Update user in context
-        if (user) {
-          const updatedUser = { ...user };
-          if (firstName) updatedUser.first_name = firstName;
-          if (lastName) updatedUser.last_name = lastName;
-          updateUser(updatedUser);
-        }
-      } else {
-        toast.error(result.error || 'Failed to update profile picture');
-        // Reload original data
-        await loadProfileData();
-      }
-    } catch (error: any) {
-      console.error('Error uploading image:', error);
-      toast.error('An error occurred while uploading image');
-      // Reload original data
-      await loadProfileData();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Handle camera click - ONLY CAMERA ALLOWED
-  const handleCameraClick = async () => {
-    try {
-      setCameraAccessing(true);
-      
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast.error('Camera not supported on this device/browser');
-        setCameraAccessing(false);
-        return;
-      }
-      
-      try {
-        const testStream = await navigator.mediaDevices.getUserMedia({ 
-          video: true 
-        }).catch(err => {
-          console.error('Initial camera test failed:', err);
-          throw err;
-        });
-        
-        testStream.getTracks().forEach(track => track.stop());
-        
-      } catch (permissionError: any) {
-        console.error('Camera permission error:', permissionError);
-        
-        if (permissionError.name === 'NotAllowedError' || permissionError.name === 'PermissionDeniedError') {
-          toast.error('Camera permission denied. Please allow camera access in browser settings.');
-        } else if (permissionError.name === 'NotFoundError' || permissionError.name === 'DevicesNotFoundError') {
-          toast.error('No camera found on this device.');
-        } else {
-          toast.error('Unable to access camera. Please check browser permissions.');
-        }
-        
-        setCameraAccessing(false);
-        return;
-      }
-      
-      await startCameraPreview();
-      
-    } catch (error: any) {
-      console.error('Error accessing camera:', error);
-      toast.error('Unable to access camera. Please try again.');
-      setCameraAccessing(false);
-    }
-  };
-
-  // Start camera preview
-  const startCameraPreview = async () => {
-    try {
-      toast.info('Starting camera...');
-      
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-      }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: {
-          facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        },
-        audio: false 
-      });
-      
-      setCameraStream(stream);
-      setShowCameraPreview(true);
-      
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(err => {
-            console.error('Error playing video:', err);
-            toast.error('Failed to start camera preview');
-            stopCameraStream();
-          });
-        }
-      }, 100);
-      
-    } catch (error: any) {
-      console.error('Camera error:', error);
-      
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        toast.error('Camera permission denied. Please allow camera access in browser settings.');
-      } else if (error.name === 'NotFoundError') {
-        toast.error('No camera found on this device.');
-      } else {
-        toast.error('Failed to access camera. Please try again.');
-      }
-      
-      stopCameraStream();
-    } finally {
-      setCameraAccessing(false);
     }
   };
 
@@ -538,55 +205,6 @@ const Profile: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pt-16">
-      {/* Camera Preview Modal */}
-      {showCameraPreview && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4">
-          <div className="absolute top-4 left-4 z-10">
-            <button
-              onClick={stopCameraStream}
-              className="bg-white p-2 rounded-full hover:bg-gray-100 transition"
-            >
-              <FiChevronLeft size={24} />
-            </button>
-          </div>
-          
-          <div className="relative w-full max-w-lg aspect-square overflow-hidden rounded-lg">
-            <video
-              ref={videoRef}
-              className="w-full h-full object-cover"
-              autoPlay
-              playsInline
-              muted
-            />
-            <canvas ref={canvasRef} className="hidden" />
-            
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-48 h-48 border-2 border-white rounded-full opacity-50"></div>
-            </div>
-            
-            <div className="absolute top-4 right-4 left-4 text-center">
-              <p className="text-white text-sm bg-black/50 backdrop-blur-sm rounded-full px-4 py-2 inline-block">
-                Position your face inside the circle
-              </p>
-            </div>
-            
-            <div className="absolute bottom-8 left-0 right-0 flex justify-center">
-              <button
-                onClick={handleCameraCapture}
-                disabled={loading}
-                className="w-16 h-16 bg-white rounded-full border-4 border-gray-300 hover:border-gray-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="w-12 h-12 bg-white rounded-full m-auto"></div>
-              </button>
-            </div>
-          </div>
-          
-          <p className="text-white mt-6 text-center max-w-md">
-            Make sure your face is clearly visible and well-lit
-          </p>
-        </div>
-      )}
-
       {/* Header - Fixed */}
       <div className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 md:px-6 py-4 border-b border-gray-200 bg-white">
         <Link to="/" className="p-2 hover:bg-gray-100 rounded-full transition">
@@ -634,18 +252,7 @@ const Profile: React.FC = () => {
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={handleCameraClick}
-                  className="absolute bottom-0 right-0 w-8 h-8 md:w-10 md:h-10 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={loading || cameraAccessing}
-                  title="Take photo with camera"
-                >
-                  {loading || cameraAccessing ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  ) : (
-                    <FiCamera size={16} className="md:size-[18px]" />
-                  )}
-                </button>
+                {/* REMOVED: Camera button */}
               </div>
 
               {/* Contact Info */}
@@ -698,16 +305,7 @@ const Profile: React.FC = () => {
                 </div>
               </div>
 
-              {/* Camera Only Notice */}
-              <div className="mt-4 w-full text-center">
-                <p className="text-xs text-gray-500">
-                  <FiCamera className="inline-block mr-1" size={12} />
-                  Tap camera icon to take a photo
-                </p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Gallery upload is not allowed
-                </p>
-              </div>
+              {/* REMOVED: Camera notice section */}
             </div>
           </div>
 

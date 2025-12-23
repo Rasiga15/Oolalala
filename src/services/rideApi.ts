@@ -1,4 +1,4 @@
-// services/rideApi.ts - CORRECTED VERSION
+// src/services/rideApi.ts - FIXED VERSION
 const BASE_URL = 'http://18.61.216.57:4500/api';
 
 export interface Stop {
@@ -6,14 +6,15 @@ export interface Stop {
   latitude: number;
   longitude: number;
   address?: string;
+  total_duration?: string;
 }
 
 export interface FareSegment {
   from_stop_order: number;
   to_stop_order: number;
   fare: number;
-  from_stop_name?: string;
-  to_stop_name?: string;
+  duration?: string;
+  total_distance_km?: number;
 }
 
 export interface OfferRidePayload {
@@ -34,12 +35,9 @@ export interface OfferRidePayload {
   isNegotiable: boolean;
   is_full_car: boolean;
   status: 'published' | 'draft';
-  stops: Stop[];
-  fares: FareSegment[];
-  route_polyline?: string;
-  selected_route_id?: number;
-  total_distance?: number;
-  total_duration?: number;
+  stops?: Stop[]; // Only for shared rides (is_full_car: false)
+  fares?: FareSegment[]; // Only for shared rides (is_full_car: false)
+  total_distance?: number; // Distance field for full car rides
 }
 
 export interface OfferRideResponse {
@@ -71,7 +69,6 @@ export interface OfferRideResponse {
 
 // Get auth token from localStorage or context
 const getAuthToken = (): string | null => {
-  // Try multiple possible token storage locations
   const tokenSources = [
     localStorage.getItem('authToken'),
     localStorage.getItem('token'),
@@ -79,10 +76,8 @@ const getAuthToken = (): string | null => {
     sessionStorage.getItem('token')
   ];
   
-  // Return the first valid token found
   for (const token of tokenSources) {
     if (token && token !== 'undefined' && token !== 'null') {
-      // If we found a token in old location, migrate to new location
       if (token === localStorage.getItem('token') || token === sessionStorage.getItem('token')) {
         localStorage.setItem('authToken', token);
         localStorage.removeItem('token');
@@ -198,7 +193,47 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
   try {
     console.log('Offering ride with payload:', payload);
     
-    const response = await apiRequest('/rides/offer', 'POST', payload, true);
+    // Clean payload to match expected structure
+    const processedPayload: any = {
+      origin: payload.origin,
+      destination: payload.destination,
+      vehicle_id: payload.vehicle_id,
+      seat_quantity: payload.seat_quantity,
+      departureTime: payload.departureTime,
+      fare_details: payload.fare_details,
+      isNegotiable: payload.isNegotiable,
+      is_full_car: payload.is_full_car,
+      status: payload.status
+    };
+    
+    // Add distance/total_distance field
+    if (payload.total_distance) {
+      processedPayload.total_distance = payload.total_distance;
+    }
+    
+    // For full car rides: do NOT include stops and fares
+    // For shared rides: MUST include stops and fares
+    if (!payload.is_full_car) {
+      if (payload.stops && payload.stops.length > 0) {
+        // Ensure stops have required fields
+        const stops = payload.stops.map(stop => ({
+          stop_name: stop.stop_name || stop.address || 'Stop',
+          latitude: stop.latitude,
+          longitude: stop.longitude,
+          address: stop.address || stop.stop_name,
+          total_duration: stop.total_duration || "0"
+        }));
+        processedPayload.stops = stops;
+      }
+      
+      if (payload.fares && payload.fares.length > 0) {
+        processedPayload.fares = payload.fares;
+      }
+    }
+    
+    console.log('Processed payload for API:', processedPayload);
+    
+    const response = await apiRequest('/rides/offer', 'POST', processedPayload, true);
     
     return response;
   } catch (error: any) {
@@ -249,16 +284,69 @@ export interface Vehicle {
   updated_at: string;
 }
 
-export const fetchVehicles = async (): Promise<Vehicle[]> => {
+// Get only verified vehicles (verified or approved)
+export const fetchVerifiedVehicles = async (): Promise<Vehicle[]> => {
   try {
-    console.log('Fetching vehicles...');
+    console.log('Fetching verified vehicles...');
     
-    // Try profile endpoint first
     let response;
     try {
       response = await apiRequest('/profile/vehicles', 'GET', undefined, true);
     } catch (error: any) {
-      // If profile endpoint fails, try the regular endpoint
+      if (error.message.includes('404') || error.message.includes('not found')) {
+        console.log('Profile endpoint failed, trying regular vehicles endpoint...');
+        response = await apiRequest('/vehicles', 'GET', undefined, true);
+      } else {
+        throw error;
+      }
+    }
+    
+    // Handle different response structures
+    let vehicles: Vehicle[] = [];
+    
+    if (Array.isArray(response)) {
+      vehicles = response;
+    } else if (response.data && Array.isArray(response.data)) {
+      vehicles = response.data;
+    } else if (response.vehicles && Array.isArray(response.vehicles)) {
+      vehicles = response.vehicles;
+    } else {
+      console.warn('Unexpected vehicles response structure:', response);
+      vehicles = [];
+    }
+    
+    // Filter only verified or approved vehicles
+    const verifiedVehicles = vehicles.filter(vehicle => 
+      vehicle.verification_status === 'verified' || vehicle.verification_status === 'approved'
+    );
+    
+    console.log(`Loaded ${vehicles.length} vehicles, ${verifiedVehicles.length} verified`);
+    return verifiedVehicles;
+  } catch (error: any) {
+    console.error('Error fetching vehicles:', error);
+    
+    // If it's an auth error, re-throw it
+    if (error.message.includes('Authentication required') || 
+        error.message.includes('session has expired') ||
+        error.message.includes('401') ||
+        error.message.includes('403')) {
+      throw error;
+    }
+    
+    // For other errors, return empty array but log it
+    return [];
+  }
+};
+
+// Get all vehicles (including pending/rejected) - for admin view
+export const fetchAllVehicles = async (): Promise<Vehicle[]> => {
+  try {
+    console.log('Fetching all vehicles...');
+    
+    let response;
+    try {
+      response = await apiRequest('/profile/vehicles', 'GET', undefined, true);
+    } catch (error: any) {
       if (error.message.includes('404') || error.message.includes('not found')) {
         console.log('Profile endpoint failed, trying regular vehicles endpoint...');
         response = await apiRequest('/vehicles', 'GET', undefined, true);
@@ -284,17 +372,7 @@ export const fetchVehicles = async (): Promise<Vehicle[]> => {
     console.log(`Loaded ${vehicles.length} vehicles`);
     return vehicles;
   } catch (error: any) {
-    console.error('Error fetching vehicles:', error);
-    
-    // If it's an auth error, re-throw it
-    if (error.message.includes('Authentication required') || 
-        error.message.includes('session has expired') ||
-        error.message.includes('401') ||
-        error.message.includes('403')) {
-      throw error;
-    }
-    
-    // For other errors, return empty array but log it
+    console.error('Error fetching all vehicles:', error);
     return [];
   }
 };

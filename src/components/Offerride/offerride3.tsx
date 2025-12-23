@@ -1,9 +1,9 @@
-// OfferRide3.tsx - ONLY VEHICLE SELECTION, NO PUBLISH BUTTON
+// src/pages/offer-ride/OfferRide3.tsx - FIXED VEHICLE SELECTION
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, IndianRupee, Users, Calendar, Clock, Navigation, Car, Loader2, Plus, ShieldAlert, Minus } from 'lucide-react';
+import { ArrowLeft, IndianRupee, Users, Calendar, Clock, Navigation, Car, Loader2, Plus, ShieldAlert, Minus, AlertTriangle, CheckCircle } from 'lucide-react';
 import Navbar from '../layout/Navbar';
-import { fetchVehicles, Vehicle } from '../../services/rideApi';
+import { fetchVerifiedVehicles, Vehicle } from '../../services/rideApi';
 
 const OfferRide3: React.FC = () => {
   const navigate = useNavigate();
@@ -17,14 +17,20 @@ const OfferRide3: React.FC = () => {
   const [seatCount, setSeatCount] = useState(rideData?.seats || 1);
   const [pricePerSeat, setPricePerSeat] = useState(rideData?.pricePerSeat || 650);
   const [showSeatWarning, setShowSeatWarning] = useState(false);
-  const [showPriceWarning, setShowPriceWarning] = useState(false);
-  const [priceErrorMessage, setPriceErrorMessage] = useState('');
+  const [showPriceMessage, setShowPriceMessage] = useState<{type: 'success' | 'warning' | 'error', message: string} | null>(null);
+  const [originalPricePerSeat, setOriginalPricePerSeat] = useState<number>(rideData?.pricePerSeat || 650);
+  const [isFullCar, setIsFullCar] = useState<boolean>(rideData?.isFullCar || false);
 
   useEffect(() => {
+    console.log('OfferRide3 - Received rideData:', rideData);
+    
     if (!rideData) {
       navigate('/offer-ride1');
       return;
     }
+    
+    setOriginalPricePerSeat(rideData.pricePerSeat || 650);
+    setIsFullCar(rideData.isFullCar || false);
     
     loadVehicles();
   }, [rideData, navigate]);
@@ -34,27 +40,20 @@ const OfferRide3: React.FC = () => {
     setError('');
     
     try {
-      console.log('Loading vehicles...');
-      const vehiclesData = await fetchVehicles();
-      console.log('Vehicles loaded:', vehiclesData);
+      console.log('Loading verified vehicles...');
+      const verifiedVehicles = await fetchVerifiedVehicles();
+      console.log('Verified vehicles loaded:', verifiedVehicles);
       
-      setVehicles(vehiclesData);
-      
-      // Check for verified vehicles (status can be "verified" or "approved")
-      const verifiedVehicles = vehiclesData.filter(vehicle => 
-        vehicle.verification_status === 'verified' || vehicle.verification_status === 'approved'
-      );
+      setVehicles(verifiedVehicles);
       
       if (verifiedVehicles.length > 0) {
         // Auto-select first verified vehicle
         setSelectedVehicle(verifiedVehicles[0]);
-      } else if (vehiclesData.length > 0) {
-        // If only unverified vehicles exist
-        setSelectedVehicle(vehiclesData[0]);
-        setError('No verified vehicles found. Your vehicle needs admin approval before publishing rides.');
+      } else {
+        setError('No verified vehicles found. Please add and verify a vehicle first.');
       }
     } catch (error: any) {
-      console.error('Error loading vehicles:', error);
+      console.error('Error loading verified vehicles:', error);
       setError('Failed to load vehicles. Please try again.');
     } finally {
       setIsLoadingVehicles(false);
@@ -67,21 +66,17 @@ const OfferRide3: React.FC = () => {
       return;
     }
 
-    // Check if selected vehicle is verified or approved
-    if (selectedVehicle.verification_status !== 'verified' && selectedVehicle.verification_status !== 'approved') {
-      setError('Selected vehicle is not verified. Please select a verified vehicle or wait for admin approval.');
-      return;
-    }
-
     // Update ride data with current seat count and price
     const updatedRideData = {
       ...rideData,
       selectedVehicle: selectedVehicle,
       seats: seatCount,
-      pricePerSeat: pricePerSeat
+      pricePerSeat: pricePerSeat,
+      isFullCar: isFullCar,
     };
 
-    console.log('Navigating to OfferRide4 with vehicle:', selectedVehicle);
+    console.log('Navigating to OfferRide4 with updated data:', updatedRideData);
+    
     navigate('/offer-ride4', { state: updatedRideData });
   };
 
@@ -114,38 +109,83 @@ const OfferRide3: React.FC = () => {
     }
   };
 
+  const calculateBasePrice = (): number => {
+    if (!rideData) return 650;
+    
+    const totalDistance = rideData.totalDistance || 0;
+    const farePerKm = parseFloat(rideData.settings?.fare_per_km_car || '12');
+    const seats = rideData.seats || 1;
+    
+    return Math.round(Math.max(100, totalDistance * farePerKm * seats) / seats);
+  };
+
   const handlePriceIncrement = () => {
     const newPrice = pricePerSeat + 100;
+    const basePrice = calculateBasePrice();
+    
     if (newPrice < 100) {
-      setPriceErrorMessage('Minimum price per seat is ₹100');
-      setShowPriceWarning(true);
-      setTimeout(() => {
-        setPriceErrorMessage('');
-        setShowPriceWarning(false);
-      }, 3000);
+      setShowPriceMessage({
+        type: 'error',
+        message: 'Minimum price per seat is ₹100'
+      });
+      setTimeout(() => setShowPriceMessage(null), 3000);
       return;
     }
+    
+    const priceDifference = newPrice - basePrice;
+    const maxAllowedDifference = basePrice * 0.1;
+    
+    if (priceDifference > maxAllowedDifference) {
+      setShowPriceMessage({
+        type: 'warning',
+        message: `You are increasing price significantly. Current: ₹${newPrice}, Base: ₹${basePrice}. Are you sure?`
+      });
+    } else if (newPrice > originalPricePerSeat) {
+      setShowPriceMessage({
+        type: 'success',
+        message: `Good! You are increasing your earnings by ₹${newPrice - originalPricePerSeat} per seat.`
+      });
+    } else {
+      setShowPriceMessage(null);
+    }
+    
     setPricePerSeat(newPrice);
-    setPriceErrorMessage('');
+    setTimeout(() => setShowPriceMessage(null), 3000);
   };
 
   const handlePriceDecrement = () => {
     const newPrice = pricePerSeat - 100;
+    const basePrice = calculateBasePrice();
+    
     if (newPrice < 100) {
-      setPriceErrorMessage('Minimum price per seat is ₹100');
-      setShowPriceWarning(true);
-      setTimeout(() => {
-        setPriceErrorMessage('');
-        setShowPriceWarning(false);
-      }, 3000);
+      setShowPriceMessage({
+        type: 'error',
+        message: 'Minimum price per seat is ₹100'
+      });
+      setTimeout(() => setShowPriceMessage(null), 3000);
       return;
     }
+    
+    const priceDifference = basePrice - newPrice;
+    const maxAllowedDifference = basePrice * 0.1;
+    
+    if (priceDifference > maxAllowedDifference) {
+      setShowPriceMessage({
+        type: 'warning',
+        message: `Warning: You are decreasing price significantly (₹${priceDifference} below base). You may incur losses. Are you sure?`
+      });
+    } else if (newPrice < originalPricePerSeat) {
+      setShowPriceMessage({
+        type: 'warning',
+        message: `You are reducing price by ₹${originalPricePerSeat - newPrice} per seat. This may affect your earnings.`
+      });
+    } else {
+      setShowPriceMessage(null);
+    }
+    
     setPricePerSeat(newPrice);
-    setPriceErrorMessage('');
+    setTimeout(() => setShowPriceMessage(null), 3000);
   };
-
-  // Calculate if price can be decreased (minimum ₹100)
-  const canDecreasePrice = pricePerSeat - 100 >= 100;
 
   if (!rideData) {
     return (
@@ -167,18 +207,9 @@ const OfferRide3: React.FC = () => {
   // Get all stops sorted
   const sortedStops = rideData.stopPoints?.sort((a: any, b: any) => a.stopId - b.stopId) || [];
   const totalFare = pricePerSeat * seatCount;
-
-  // Helper function to get verification status display
-  const getVerificationStatusDisplay = (status: string) => {
-    if (status === 'verified' || status === 'approved') {
-      return { text: 'Verified', className: 'bg-green-100 text-green-800' };
-    } else if (status === 'pending') {
-      return { text: 'Pending', className: 'bg-amber-100 text-amber-800' };
-    } else if (status === 'rejected') {
-      return { text: 'Rejected', className: 'bg-red-100 text-red-800' };
-    }
-    return { text: 'Unknown', className: 'bg-gray-100 text-gray-800' };
-  };
+  const basePrice = calculateBasePrice();
+  const priceDifference = pricePerSeat - basePrice;
+  const percentageDifference = (priceDifference / basePrice) * 100;
 
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
@@ -201,6 +232,19 @@ const OfferRide3: React.FC = () => {
             </p>
           </div>
 
+          {/* Full Car Indicator */}
+          {isFullCar && (
+            <div className="mb-5 p-3 bg-purple-500/10 border border-purple-500 rounded-lg">
+              <div className="flex items-center gap-2 text-purple-700">
+                <Navigation size={16} />
+                <div>
+                  <p className="font-medium text-sm">Full Car (Private Ride)</p>
+                  <p className="text-xs">Direct route without stops • Single base fare</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Error Message */}
           {error && (
             <div className="mb-5 p-3 bg-red-500/10 border border-red-500 rounded-lg">
@@ -213,22 +257,54 @@ const OfferRide3: React.FC = () => {
             </div>
           )}
 
-          {/* Toast Notifications */}
-          {showSeatWarning && (
-            <div className="fixed top-20 right-4 z-50 animate-slide-in">
-              <div className="bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg">
-                Maximum 100 seats allowed
+          {/* Price Adjustment Messages */}
+          {showPriceMessage && (
+            <div className={`mb-5 p-3 rounded-lg border ${
+              showPriceMessage.type === 'success' ? 'bg-green-500/10 border-green-500 text-green-700' :
+              showPriceMessage.type === 'warning' ? 'bg-amber-500/10 border-amber-500 text-amber-700' :
+              'bg-red-500/10 border-red-500 text-red-700'
+            }`}>
+              <div className="flex items-center gap-2">
+                {showPriceMessage.type === 'success' ? (
+                  <CheckCircle size={16} />
+                ) : showPriceMessage.type === 'warning' ? (
+                  <AlertTriangle size={16} />
+                ) : (
+                  <ShieldAlert size={16} />
+                )}
+                <div>
+                  <p className="font-medium text-sm">{showPriceMessage.message}</p>
+                </div>
               </div>
             </div>
           )}
-          
-          {showPriceWarning && (
-            <div className="fixed top-20 right-4 z-50 animate-slide-in">
-              <div className="bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg">
-                {priceErrorMessage}
+
+          {/* Price Comparison Info */}
+          <div className={`mb-5 p-3 rounded-lg border ${
+            pricePerSeat > basePrice ? 'bg-green-50 border-green-200' :
+            pricePerSeat < basePrice ? 'bg-amber-50 border-amber-200' :
+            'bg-blue-50 border-blue-200'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {pricePerSeat > basePrice ? 'You are earning extra' : 
+                   pricePerSeat < basePrice ? 'You are offering discount' : 
+                   'Base price maintained'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Base price: ₹{basePrice} • Your price: ₹{pricePerSeat}
+                </p>
+              </div>
+              <div className={`text-sm font-bold ${
+                pricePerSeat > basePrice ? 'text-green-600' :
+                pricePerSeat < basePrice ? 'text-amber-600' :
+                'text-blue-600'
+              }`}>
+                {priceDifference > 0 ? '+' : ''}{priceDifference} ({percentageDifference > 0 ? '+' : ''}{percentageDifference.toFixed(1)}%)
               </div>
             </div>
-          )}
+          </div>
 
           <div className="flex flex-col lg:flex-row gap-5">
             {/* Left Column - Ride Summary */}
@@ -323,12 +399,20 @@ const OfferRide3: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={handlePriceDecrement}
-                          disabled={!canDecreasePrice}
-                          className="w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={pricePerSeat - 100 < 100}
+                          className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                            pricePerSeat - 100 >= 100 
+                              ? 'bg-gray-100 hover:bg-gray-200' 
+                              : 'bg-gray-100 opacity-50 cursor-not-allowed'
+                          }`}
                         >
                           <Minus size={12} className="text-foreground" />
                         </button>
-                        <span className="font-medium text-sm min-w-[50px] text-center">
+                        <span className={`font-medium text-sm min-w-[50px] text-center ${
+                          pricePerSeat > basePrice ? 'text-green-600' :
+                          pricePerSeat < basePrice ? 'text-red-600' :
+                          'text-foreground'
+                        }`}>
                           ₹{pricePerSeat}
                         </span>
                         <button
@@ -400,14 +484,14 @@ const OfferRide3: React.FC = () => {
               {/* Vehicle Selection Card with white background */}
               <div className="bg-white rounded-xl p-4 border border-border">
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-semibold text-foreground">Your Vehicles</h2>
+                  <h2 className="text-lg font-semibold text-foreground">Your Verified Vehicles</h2>
                   <div className="flex gap-1">
                     <button
                       onClick={handleViewVerificationStatus}
-                      className="text-xs text-amber-600 hover:text-amber-700 flex items-center gap-0.5"
+                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-0.5"
                     >
                       <ShieldAlert size={12} />
-                      View Status
+                      View All
                     </button>
                     <button
                       onClick={handleAddVehicle}
@@ -422,13 +506,11 @@ const OfferRide3: React.FC = () => {
                 {isLoadingVehicles ? (
                   <div className="flex items-center justify-center gap-2 py-6">
                     <Loader2 size={16} className="animate-spin text-primary" />
-                    <span className="text-sm text-foreground">Loading vehicles...</span>
+                    <span className="text-sm text-foreground">Loading verified vehicles...</span>
                   </div>
                 ) : vehicles.length > 0 ? (
                   <div className="space-y-2">
                     {vehicles.map((vehicle) => {
-                      const isVerified = vehicle.verification_status === 'verified' || vehicle.verification_status === 'approved';
-                      const statusDisplay = getVerificationStatusDisplay(vehicle.verification_status);
                       const isSelected = selectedVehicle?.id === vehicle.id;
                       
                       return (
@@ -437,25 +519,21 @@ const OfferRide3: React.FC = () => {
                           onClick={() => setSelectedVehicle(vehicle)}
                           className={`p-3 border rounded-lg cursor-pointer transition-all ${
                             isSelected 
-                              ? isVerified 
-                                ? 'border-green-500 bg-green-50 shadow-sm' 
-                                : 'border-amber-500 bg-amber-50 shadow-sm'
+                              ? 'border-green-500 bg-green-50 shadow-sm' 
                               : 'bg-gray-50 border-border hover:bg-gray-100'
                           }`}
                         >
                           <div className="flex items-start gap-2">
-                            <div className={`p-1.5 rounded-md ${
-                              isVerified ? 'bg-green-100' : 'bg-amber-100'
-                            }`}>
-                              <Car size={16} className={isVerified ? "text-green-600" : "text-amber-600"} />
+                            <div className="p-1.5 rounded-md bg-green-100">
+                              <Car size={16} className="text-green-600" />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex justify-between items-start">
                                 <div className="min-w-0">
                                   <div className="font-medium text-sm text-foreground flex items-center gap-1 truncate">
                                     {vehicle.number_plate}
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap ${statusDisplay.className}`}>
-                                      {statusDisplay.text}
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap bg-green-100 text-green-800">
+                                      ✓ Verified
                                     </span>
                                   </div>
                                   <div className="text-xs text-muted-foreground truncate">
@@ -464,24 +542,11 @@ const OfferRide3: React.FC = () => {
                                   </div>
                                 </div>
                                 {isSelected && (
-                                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ml-1 flex-shrink-0 ${
-                                    isVerified ? 'border-green-500' : 'border-amber-500'
-                                  }`}>
-                                    <div className={`w-2 h-2 rounded-full ${
-                                      isVerified ? 'bg-green-500' : 'bg-amber-500'
-                                    }`} />
+                                  <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center ml-1 flex-shrink-0 border-green-500">
+                                    <div className="w-2 h-2 rounded-full bg-green-500" />
                                   </div>
                                 )}
                               </div>
-                              
-                              {!isVerified && (
-                                <div className="mt-1 p-1 bg-amber-100 border border-amber-200 rounded text-[10px] text-amber-800">
-                                  <div className="flex items-center gap-1">
-                                    <ShieldAlert size={10} />
-                                    <span>Needs admin approval before publishing rides</span>
-                                  </div>
-                                </div>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -491,31 +556,28 @@ const OfferRide3: React.FC = () => {
                 ) : (
                   <div className="text-center py-6 border border-dashed border-border rounded-lg bg-gray-50">
                     <Car className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground mb-2">No vehicles found</p>
+                    <p className="text-sm text-muted-foreground mb-2">No verified vehicles found</p>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      You need to add and verify a vehicle before offering rides
+                    </p>
                     <button
                       onClick={handleAddVehicle}
                       className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm"
                     >
-                      Add Your First Vehicle
+                      Add & Verify Vehicle
                     </button>
                   </div>
                 )}
 
-                {/* Selected Vehicle Details - with light green/amber background */}
+                {/* Selected Vehicle Details */}
                 {selectedVehicle && (
-                  <div className={`mt-4 p-3 rounded-lg ${
-                    selectedVehicle.verification_status === 'verified' || selectedVehicle.verification_status === 'approved'
-                      ? 'bg-green-50 border border-green-200' 
-                      : 'bg-amber-50 border border-amber-200'
-                  }`}>
+                  <div className="mt-4 p-3 rounded-lg bg-green-50 border border-green-200">
                     <div className="flex justify-between items-center mb-1">
                       <div className="font-medium text-sm text-foreground">
                         Selected Vehicle
                       </div>
-                      <div className={`text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap ${
-                        getVerificationStatusDisplay(selectedVehicle.verification_status).className
-                      }`}>
-                        {getVerificationStatusDisplay(selectedVehicle.verification_status).text}
+                      <div className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap bg-green-100 text-green-800">
+                        ✓ Verified
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-1 text-xs">
@@ -546,8 +608,7 @@ const OfferRide3: React.FC = () => {
               <div className="sticky bottom-4">
                 <button
                   onClick={handleContinue}
-                  disabled={!selectedVehicle || 
-                    (selectedVehicle.verification_status !== 'verified' && selectedVehicle.verification_status !== 'approved')}
+                  disabled={!selectedVehicle}
                   className="w-full py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                 >
                   Continue to Publish Ride
@@ -557,15 +618,14 @@ const OfferRide3: React.FC = () => {
                   <p className="text-xs text-muted-foreground">
                     You'll review and publish your ride in the next step
                   </p>
-                  {!selectedVehicle && (
+                  {!selectedVehicle && vehicles.length === 0 && (
                     <p className="text-xs text-amber-600 mt-0.5">
-                      Please select a vehicle to continue
+                      No verified vehicles available. Please add and verify a vehicle first.
                     </p>
                   )}
-                  {selectedVehicle && 
-                    (selectedVehicle.verification_status !== 'verified' && selectedVehicle.verification_status !== 'approved') && (
+                  {!selectedVehicle && vehicles.length > 0 && (
                     <p className="text-xs text-amber-600 mt-0.5">
-                      Selected vehicle needs admin approval
+                      Please select a vehicle to continue
                     </p>
                   )}
                 </div>
@@ -575,7 +635,6 @@ const OfferRide3: React.FC = () => {
         </div>
       </div>
       
-      {/* Add animation style */}
       <style jsx>{`
         @keyframes slide-in {
           from {

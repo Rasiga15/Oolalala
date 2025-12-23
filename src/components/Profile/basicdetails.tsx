@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Calendar } from "lucide-react";
 import { toast } from "sonner";
-import { FiChevronLeft } from "react-icons/fi";
+import { FiChevronLeft, FiCamera } from "react-icons/fi";
 
 // Custom components
 import { Button } from "../common/Button";
@@ -105,6 +105,12 @@ const BasicDetails = () => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [cameraAccessing, setCameraAccessing] = useState(false);
+  const [showCameraPreview, setShowCameraPreview] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -206,6 +212,15 @@ const BasicDetails = () => {
     fetchProfileData();
   }, []);
 
+  // Clean up camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
   const fetchProfileData = async () => {
     try {
       setFetching(true);
@@ -229,6 +244,15 @@ const BasicDetails = () => {
           professionalType: result.data.professionalType || "",
           multiVehicle: result.data.multiVehicle || false,
         });
+        
+        // Load profile image if exists
+        if (result.data.profileImage) {
+          let imageUrl = result.data.profileImage;
+          if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('data:')) {
+            imageUrl = `http://18.61.216.57:4500${imageUrl}`;
+          }
+          setProfileImage(imageUrl);
+        }
         
         toast.success("Profile loaded successfully");
       } else {
@@ -259,6 +283,311 @@ const BasicDetails = () => {
     }
   };
 
+  // Function to stop camera stream
+  const stopCameraStream = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => {
+        track.stop();
+      });
+      setCameraStream(null);
+    }
+    setShowCameraPreview(false);
+  };
+
+  // Compress image to under 2MB
+  const compressImageToUnder2MB = (blob: Blob, maxAttempts = 3, attempt = 1): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // Set max dimensions to reduce size
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        
+        // Calculate new dimensions while maintaining aspect ratio
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round(height * MAX_WIDTH / width);
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round(width * MAX_HEIGHT / height);
+            height = MAX_HEIGHT;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Reduce quality based on attempt number
+          let quality = 0.8 - (attempt * 0.2); // Start with 0.8, then 0.6, then 0.4
+          if (quality < 0.4) quality = 0.4; // Minimum quality 0.4
+          
+          // Convert to Blob with compression
+          canvas.toBlob(
+            (compressedBlob) => {
+              if (compressedBlob) {
+                console.log(`Compression attempt ${attempt}:`, (compressedBlob.size / 1024 / 1024).toFixed(2), 'MB');
+                
+                // If still too large and more attempts left, try again with lower quality
+                if (compressedBlob.size > 2 * 1024 * 1024 && attempt < maxAttempts) {
+                  resolve(compressImageToUnder2MB(compressedBlob, maxAttempts, attempt + 1));
+                } else {
+                  resolve(compressedBlob);
+                }
+              } else {
+                resolve(blob); // Fallback to original
+              }
+            },
+            'image/jpeg',
+            quality
+          );
+        } else {
+          resolve(blob);
+        }
+      };
+      
+      img.onerror = () => {
+        console.error('Error loading image for compression');
+        resolve(blob); // Fallback to original
+      };
+      
+      img.src = URL.createObjectURL(blob);
+    });
+  };
+
+  // Handle camera capture
+  const handleCameraCapture = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    try {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Draw video to canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Convert canvas to Blob with compression
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            // Compress the image
+            const compressedBlob = await compressImageToUnder2MB(blob);
+            
+            const file = new File([compressedBlob], `profile-photo-${Date.now()}.jpg`, { 
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            });
+            
+            console.log('Captured image size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+            
+            // Check if image is under 2MB
+            if (file.size > 2 * 1024 * 1024) {
+              toast.error('Image is still too large. Please try again with better lighting.');
+              stopCameraStream();
+              return;
+            }
+            
+            stopCameraStream();
+            await uploadProfileImage(file);
+          }
+        }, 'image/jpeg', 0.7); // Start with 0.7 quality
+      }
+    } catch (error) {
+      console.error('Error capturing photo:', error);
+      toast.error('Failed to capture photo');
+      stopCameraStream();
+    }
+  };
+
+  // Upload profile image
+  const uploadProfileImage = async (file: File) => {
+    try {
+      setLoading(true);
+      
+      // Validate image
+      const validImageTypes = ['image/jpeg', 'image/jpg'];
+      if (!validImageTypes.includes(file.type)) {
+        toast.error('Only JPEG images are allowed');
+        return;
+      }
+      
+      if (file.size > 2 * 1024 * 1024) { // 2MB
+        toast.error('Image size should be less than 2MB');
+        return;
+      }
+      
+      toast.info('Uploading profile picture...');
+      
+      // Preview the image
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfileImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      
+      // Create FormData with all required fields
+      const formData = new FormData();
+      formData.append('profile_image', file);
+      
+      // Always append basic required fields
+      const firstName = formData.firstName || user?.first_name || '';
+      const lastName = formData.lastName || user?.last_name || '';
+      const dateOfBirth = formData.dateOfBirth || user?.date_of_birth || '';
+      const gender = formData.gender || user?.gender || 'male';
+      const multiVehicle = formData.multiVehicle || false;
+      
+      formData.append('firstName', firstName);
+      formData.append('lastName', lastName);
+      formData.append('dateOfBirth', dateOfBirth);
+      formData.append('gender', gender);
+      formData.append('multiVehicle', multiVehicle.toString());
+      
+      // Append optional fields if they exist
+      if (formData.location) {
+        formData.append('location', formData.location);
+      }
+      
+      if (formData.publishRide !== undefined) {
+        formData.append('publishRide', formData.publishRide.toString());
+      }
+      
+      if (formData.partnerType) {
+        formData.append('partnerType', formData.partnerType);
+      }
+      
+      if (formData.businessName) {
+        formData.append('businessName', formData.businessName);
+      }
+      
+      // Log FormData for debugging
+      console.log('Sending FormData with keys:');
+      for (let [key, value] of formData.entries()) {
+        console.log(`${key}:`, value);
+      }
+      
+      // Call API
+      const result = await ProfileApiService.updateBasicProfile(formData);
+      
+      if (result.success) {
+        toast.success('Profile picture updated successfully!');
+      } else {
+        toast.error(result.error || 'Failed to update profile picture');
+      }
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      toast.error('An error occurred while uploading image');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle camera click
+  const handleCameraClick = async () => {
+    try {
+      setCameraAccessing(true);
+      
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error('Camera not supported on this device/browser');
+        setCameraAccessing(false);
+        return;
+      }
+      
+      try {
+        const testStream = await navigator.mediaDevices.getUserMedia({ 
+          video: true 
+        }).catch(err => {
+          console.error('Initial camera test failed:', err);
+          throw err;
+        });
+        
+        testStream.getTracks().forEach(track => track.stop());
+        
+      } catch (permissionError: any) {
+        console.error('Camera permission error:', permissionError);
+        
+        if (permissionError.name === 'NotAllowedError' || permissionError.name === 'PermissionDeniedError') {
+          toast.error('Camera permission denied. Please allow camera access in browser settings.');
+        } else if (permissionError.name === 'NotFoundError' || permissionError.name === 'DevicesNotFoundError') {
+          toast.error('No camera found on this device.');
+        } else {
+          toast.error('Unable to access camera. Please check browser permissions.');
+        }
+        
+        setCameraAccessing(false);
+        return;
+      }
+      
+      await startCameraPreview();
+      
+    } catch (error: any) {
+      console.error('Error accessing camera:', error);
+      toast.error('Unable to access camera. Please try again.');
+      setCameraAccessing(false);
+    }
+  };
+
+  // Start camera preview
+  const startCameraPreview = async () => {
+    try {
+      toast.info('Starting camera...');
+      
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: {
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false 
+      });
+      
+      setCameraStream(stream);
+      setShowCameraPreview(true);
+      
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(err => {
+            console.error('Error playing video:', err);
+            toast.error('Failed to start camera preview');
+            stopCameraStream();
+          });
+        }
+      }, 100);
+      
+    } catch (error: any) {
+      console.error('Camera error:', error);
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        toast.error('Camera permission denied. Please allow camera access in browser settings.');
+      } else if (error.name === 'NotFoundError') {
+        toast.error('No camera found on this device.');
+      } else {
+        toast.error('Failed to access camera. Please try again.');
+      }
+      
+      stopCameraStream();
+    } finally {
+      setCameraAccessing(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.firstName || !formData.lastName) {
       toast.error("Please fill in all required fields");
@@ -286,11 +615,7 @@ const BasicDetails = () => {
       return;
     }
 
-    // Validation for professional type when individual partner
-    if (formData.publishRide && formData.partnerType === "individual" && !formData.professionalType) {
-      toast.error("Professional type is required for individual partner");
-      return;
-    }
+    // REMOVED: Validation for professional type when individual partner
 
     try {
       setLoading(true);
@@ -307,7 +632,7 @@ const BasicDetails = () => {
         partnerType: formData.partnerType,
         businessName: formData.businessName,
         location: formData.location,
-        professionalType: formData.professionalType,
+        professionalType: formData.professionalType, // Still include but optional now
       });
       
       console.log("FormData keys:", Array.from(formDataObj.keys()));
@@ -348,7 +673,7 @@ const BasicDetails = () => {
       publishRide: checked,
       partnerType: checked ? formData.partnerType : "",
       businessName: checked ? formData.businessName : "",
-      professionalType: checked ? formData.professionalType : "",
+      professionalType: "", // Clear professional type when toggle
       multiVehicle: checked ? formData.multiVehicle : false,
     };
     
@@ -361,7 +686,7 @@ const BasicDetails = () => {
       ...formData,
       partnerType: type,
       businessName: type === "commercial" ? formData.businessName : "",
-      professionalType: type === "individual" ? formData.professionalType : "",
+      professionalType: "", // Clear professional type
     });
   };
 
@@ -370,14 +695,6 @@ const BasicDetails = () => {
     setFormData({
       ...formData,
       multiVehicle: checked,
-    });
-  };
-
-  // Handle professional type change (now as input field)
-  const handleProfessionalTypeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      professionalType: e.target.value,
     });
   };
 
@@ -416,6 +733,53 @@ const BasicDetails = () => {
       {/* Form Card */}
       <div className="px-4 md:px-8 lg:px-16">
         <div className="bg-white rounded-xl shadow-sm p-6 md:p-8 max-w-3xl mx-auto">
+          {/* Profile Image Section */}
+          <div className="flex justify-center mb-8">
+            <div className="relative">
+              <div className="w-24 h-24 md:w-28 md:h-28 rounded-full overflow-hidden bg-gradient-to-br from-blue-100 to-teal-100 border-4 border-white shadow-lg">
+                {profileImage ? (
+                  <img
+                    src={profileImage}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      console.error('Error loading profile image:', profileImage);
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      const parent = (e.target as HTMLImageElement).parentElement;
+                      if (parent) {
+                        parent.innerHTML = `
+                          <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-400 to-teal-400">
+                            <span class="text-3xl md:text-4xl text-white font-bold">
+                              ${formData.firstName?.charAt(0) || formData.lastName?.charAt(0) || 'U'}
+                            </span>
+                          </div>
+                        `;
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-400 to-teal-400">
+                    <span className="text-3xl md:text-4xl text-white font-bold">
+                      {formData.firstName?.charAt(0) || formData.lastName?.charAt(0) || 'U'}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={handleCameraClick}
+                className="absolute bottom-0 right-0 w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center shadow-lg hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading || cameraAccessing}
+                title="Take photo with camera"
+              >
+                {loading || cameraAccessing ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  <FiCamera size={20} />
+                )}
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
             {/* Left Column */}
             <div className="space-y-6">
@@ -477,20 +841,22 @@ const BasicDetails = () => {
                   </div>
                 </div>
 
-                {/* Location (Optional) */}
-                <div className="space-y-2">
-                  <Label htmlFor="location">
-                    Location (Optional)
-                  </Label>
-                  <Input
-                    id="location"
-                    placeholder="Enter your location"
-                    value={formData.location}
-                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                    className="h-12"
-                    disabled={loading}
-                  />
-                </div>
+                {/* Location (Optional) - ONLY FOR COMMERCIAL PARTNERS */}
+                {formData.publishRide && formData.partnerType === "commercial" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="location">
+                      Location (Optional)
+                    </Label>
+                    <Input
+                      id="location"
+                      placeholder="Enter your location"
+                      value={formData.location}
+                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                      className="h-12"
+                      disabled={loading}
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -594,26 +960,7 @@ const BasicDetails = () => {
                     </div>
                   </div>
 
-                  {/* Professional Type Input Field (Only for Individual partners) - CHANGED FROM SELECT TO INPUT */}
-                  {formData.partnerType === "individual" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="professionalType">
-                        Professional Type <span className="text-red-500">*</span>
-                      </Label>
-                      <Input
-                        id="professionalType"
-                        type="text"
-                        placeholder="e.g., Software Engineer, Doctor, Teacher, etc."
-                        value={formData.professionalType}
-                        onChange={handleProfessionalTypeChange}
-                        className="h-12"
-                        disabled={loading}
-                      />
-                      <p className="text-xs text-gray-500">
-                        Enter your profession (e.g., Software Engineer, Doctor, Teacher)
-                      </p>
-                    </div>
-                  )}
+                  {/* REMOVED: Professional Type Input Field */}
 
                   {/* Business Name Field (Only for Commercial partners) */}
                   {formData.partnerType === "commercial" && (
@@ -723,6 +1070,56 @@ const BasicDetails = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* CAMERA PREVIEW MODAL */}
+      {showCameraPreview && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4">
+          <div className="absolute top-4 left-4 z-10">
+            <button
+              onClick={stopCameraStream}
+              className="bg-white p-2 rounded-full hover:bg-gray-100 transition"
+              disabled={loading}
+            >
+              <FiChevronLeft size={24} />
+            </button>
+          </div>
+          
+          <div className="relative w-full max-w-lg aspect-square overflow-hidden rounded-lg">
+            <video
+              ref={videoRef}
+              className="w-full h-full object-cover"
+              autoPlay
+              playsInline
+              muted
+            />
+            <canvas ref={canvasRef} className="hidden" />
+            
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-48 h-48 border-2 border-white rounded-full opacity-50"></div>
+            </div>
+            
+            <div className="absolute top-4 right-4 left-4 text-center">
+              <p className="text-white text-sm bg-black/50 backdrop-blur-sm rounded-full px-4 py-2 inline-block">
+                Position your face inside the circle
+              </p>
+            </div>
+            
+            <div className="absolute bottom-8 left-0 right-0 flex justify-center">
+              <button
+                onClick={handleCameraCapture}
+                disabled={loading}
+                className="w-16 h-16 bg-white rounded-full border-4 border-gray-300 hover:border-gray-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="w-12 h-12 bg-white rounded-full m-auto"></div>
+              </button>
+            </div>
+          </div>
+          
+          <p className="text-white mt-6 text-center max-w-md">
+            Make sure your face is clearly visible and well-lit
+          </p>
         </div>
       )}
     </div>

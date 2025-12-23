@@ -96,13 +96,13 @@ export const Navbar: React.FC = () => {
 
         {/* CENTER - NAV LINKS */}
         <div className="hidden md:flex items-center gap-12">
-          <button 
+          {/* <button 
             onClick={() => navigate('/find-ride')}
             className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
           >
             <FiSearch size={20} />
             <span>Find Ride</span>
-          </button>
+          </button> */}
 
           <button 
             onClick={() => navigate('/offer-ride1')}

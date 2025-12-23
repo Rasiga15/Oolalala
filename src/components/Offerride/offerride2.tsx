@@ -1,13 +1,12 @@
-// OfferRide2.tsx - FIXED HEIGHT WITHOUT SCROLL
+// src/pages/offer-ride/OfferRide2.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { CircleArrowRight, RefreshCw, Plus, MapPin, ArrowLeft, Navigation, AlertCircle, Trash2, Info, X, Map, Route, ChevronRight } from 'lucide-react';
+import { CircleArrowRight, RefreshCw, Plus, MapPin, ArrowLeft, Navigation, AlertCircle, Trash2, Info, X, Map, Route, ChevronRight, Ban, Menu, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleMap, Marker, Polyline, useLoadScript } from '@react-google-maps/api';
 import Navbar from '../layout/Navbar';
 import { computeRoutes } from '../../services/routesApi';
 import { reverseGeocode, calculateDistance, isStopBetweenRoute } from '../../services/placesApi';
 import { StopPoint, Location, RouteOption } from '../../types';
-import { log } from 'console';
 
 // Toast Notification Component
 const ToastNotification: React.FC<{
@@ -48,7 +47,8 @@ const AddStopModal: React.FC<{
   address: string;
   isValid: boolean;
   validationMessage: string;
-}> = ({ isOpen, onClose, onConfirm, position, address, isValid, validationMessage }) => {
+  isFullCar: boolean;
+}> = ({ isOpen, onClose, onConfirm, position, address, isValid, validationMessage, isFullCar }) => {
   const [stopName, setStopName] = useState('');
 
   useEffect(() => {
@@ -59,6 +59,43 @@ const AddStopModal: React.FC<{
   }, [address]);
 
   if (!isOpen) return null;
+
+  if (isFullCar) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-card rounded-xl w-full max-w-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-foreground">Stops Not Allowed</h3>
+            <button onClick={onClose} className="p-1 hover:bg-accent rounded-full">
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="mb-4">
+            <div className={`p-3 rounded-lg bg-red-500/10 border border-red-500`}>
+              <div className="flex items-center gap-2 text-red-600">
+                <Ban size={16} />
+                <span className="text-sm">Stops are not allowed for full car rides</span>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Since this is a full car ride (private), you cannot add intermediate stops. 
+                The ride will go directly from pickup to destination.
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90"
+            >
+              Okay
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -100,7 +137,7 @@ const AddStopModal: React.FC<{
           </div>
         </div>
         
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <button
             onClick={() => {
               if (position && isValid && stopName) {
@@ -147,16 +184,11 @@ const OfferRide2: React.FC = () => {
   const [stopPoints, setStopPoints] = useState<StopPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRecalculating, setIsRecalculating] = useState(false);
-  
-  // Screen state: 'routes' or 'stops'
+  const [isFullCar, setIsFullCar] = useState<boolean>(false);
   const [currentScreen, setCurrentScreen] = useState<'routes' | 'stops'>('routes');
-  
-  // Google Maps state
   const [mapCenter, setMapCenter] = useState({ lat: 13.0827, lng: 80.2707 });
   const [mapZoom, setMapZoom] = useState(10);
   const [map, setMap] = useState<google.maps.Map | null>(null);
-  
-  // Add stop modal state
   const [addStopModal, setAddStopModal] = useState({
     isOpen: false,
     position: null as { lat: number; lng: number } | null,
@@ -164,31 +196,36 @@ const OfferRide2: React.FC = () => {
     isValid: false,
     validationMessage: ''
   });
-  
-  // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  
-  // Add stop mode state
   const [isAddStopMode, setIsAddStopMode] = useState(false);
-  
-  // Active stop for dragging
   const [activeStopIndex, setActiveStopIndex] = useState<number | null>(null);
-
-  // Route segments info
   const [routeSegments, setRouteSegments] = useState<Array<{
     from: string;
     to: string;
     distance: number;
     duration: number;
   }>>([]);
-  
-  // Google Maps Load Script
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isTablet, setIsTablet] = useState(window.innerWidth >= 768 && window.innerWidth < 1024);
+  const [mapExpanded, setMapExpanded] = useState(false);
+
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: 'AIzaSyCsWQJdiuPGmabvpX-_4FhyC9C5GKu3TLk',
     libraries: LIBRARIES
   });
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
+
+  // Handle responsive behavior
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+      setIsTablet(window.innerWidth >= 768 && window.innerWidth < 1024);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (!rideData?.pickup || !rideData?.drop) {
@@ -202,7 +239,6 @@ const OfferRide2: React.FC = () => {
     });
     setMapZoom(12);
     
-    // Initialize stopPoints with Origin and Destination
     const initialStops: StopPoint[] = [
       {
         stopId: 1,
@@ -231,9 +267,11 @@ const OfferRide2: React.FC = () => {
     try {
       const sortedStops = [...stops].sort((a, b) => a.stopId - b.stopId);
       
-      const intermediateStops = sortedStops
-        .filter(stop => stop.type === 'STOP')
-        .map(stop => ({ lat: stop.lat, lng: stop.lng }));
+      const intermediateStops = isFullCar 
+        ? [] 
+        : sortedStops
+            .filter(stop => stop.type === 'STOP')
+            .map(stop => ({ lat: stop.lat, lng: stop.lng }));
 
       const results = await computeRoutes(
         { lat: rideData.pickup.lat, lng: rideData.pickup.lng },
@@ -342,8 +380,15 @@ const OfferRide2: React.FC = () => {
     return hours + minutes + seconds;
   };
 
-  // Add intermediate stop at midpoint
   const handleOneClickAddStop = async () => {
+    if (isFullCar) {
+      setToast({ 
+        message: '❌ Stops are not allowed for full car rides', 
+        type: 'error' 
+      });
+      return;
+    }
+
     try {
       const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
       const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
@@ -377,7 +422,7 @@ const OfferRide2: React.FC = () => {
       
       const maxStopId = Math.max(...stopPoints.map(stop => stop.stopId));
       const newStopId = maxStopId + 1;
-    console.log("New Stop ID: ", newStopId);
+      
       const newStop: StopPoint = {
         stopId: newStopId,
         type: 'STOP',
@@ -386,7 +431,7 @@ const OfferRide2: React.FC = () => {
         lat: midLat,
         lng: midLng
       };
-      console.log("New Stop: ", newStop);
+      
       const updatedStops = [...stopPoints];
       const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
       updatedStops.splice(destinationIndex, 0, newStop);
@@ -418,10 +463,20 @@ const OfferRide2: React.FC = () => {
     }
   };
 
-  // Handle map click for adding stops
   const handleMapClick = async (e: google.maps.MapMouseEvent) => {
+    if (isFullCar) {
+      setAddStopModal({
+        isOpen: true,
+        position: null,
+        address: '',
+        isValid: false,
+        validationMessage: ''
+      });
+      return;
+    }
+
     if (!isAddStopMode || !e.latLng) return;
-     console.log("Map Clicked at: ", e.latLng.toJSON());
+    
     const lat = e.latLng.lat();
     const lng = e.latLng.lng();
 
@@ -441,14 +496,14 @@ const OfferRide2: React.FC = () => {
       const address = reverseResults.length > 0 
         ? reverseResults[0].displayName.text 
         : `Location at ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-console.log("Reverse Geocode Address: ", address);
+
       const validation = isStopBetweenRoute(
         { lat, lng },
         { lat: origin.lat, lng: origin.lng },
         { lat: destination.lat, lng: destination.lng },
         100
       );
-console.log("Validation Result: ", validation);
+
       setAddStopModal({
         isOpen: true,
         position: { lat, lng },
@@ -468,8 +523,19 @@ console.log("Validation Result: ", validation);
     }
   };
 
-  // Confirm adding stop
   const confirmAddStop = async (stopData: StopPoint) => {
+    if (isFullCar) {
+      setAddStopModal({ 
+        isOpen: false, 
+        position: null, 
+        address: '', 
+        isValid: false, 
+        validationMessage: '' 
+      });
+      setIsAddStopMode(false);
+      return;
+    }
+
     try {
       const maxStopId = Math.max(...stopPoints.map(stop => stop.stopId));
       const newStopId = maxStopId + 1;
@@ -518,6 +584,14 @@ console.log("Validation Result: ", validation);
   };
 
   const removeStop = (stopId: number) => {
+    if (isFullCar) {
+      setToast({ 
+        message: '❌ Cannot modify stops for full car rides', 
+        type: 'error' 
+      });
+      return;
+    }
+
     const stopToRemove = stopPoints.find(stop => stop.stopId === stopId);
     
     if (stopToRemove?.type === 'ORIGIN' || stopToRemove?.type === 'DESTINATION') {
@@ -600,6 +674,7 @@ console.log("Validation Result: ", validation);
       selectedRoute: selectedRouteData,
       farePerKm: farePerKm,
       routeSegments: routeSegments,
+      isFullCar: isFullCar,
     };
 
     console.log('Navigating to OfferRide3 with stopPoints:', sortedStops);
@@ -612,9 +687,12 @@ console.log("Validation Result: ", validation);
     setIsRecalculating(true);
     try {
       const sortedStops = [...stopPoints].sort((a, b) => a.stopId - b.stopId);
-      const intermediateStops = sortedStops
-        .filter(stop => stop.type === 'STOP')
-        .map(stop => ({ lat: stop.lat, lng: stop.lng }));
+      
+      const intermediateStops = isFullCar 
+        ? [] 
+        : sortedStops
+            .filter(stop => stop.type === 'STOP')
+            .map(stop => ({ lat: stop.lat, lng: stop.lng }));
 
       const results = await computeRoutes(
         { lat: rideData.pickup.lat, lng: rideData.pickup.lng },
@@ -766,16 +844,79 @@ console.log("Validation Result: ", validation);
     );
   }
 
-  // Render Routes Screen (Left Column) - FIXED HEIGHT
+  // Full Car Toggle Card
+  const renderFullCarToggle = () => (
+    <div className="bg-card rounded-xl p-4 border border-border mb-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isFullCar ? 'bg-primary' : 'bg-muted'}`}>
+            <Navigation size={20} className={isFullCar ? 'text-primary-foreground' : 'text-muted-foreground'} />
+          </div>
+          <div>
+            <h3 className="font-medium text-foreground">Full Car (Private Ride)</h3>
+            <p className="text-xs text-muted-foreground">
+              {isFullCar 
+                ? 'Direct ride without stops • Higher fare' 
+                : 'Shared ride with stops • Split fare'}
+            </p>
+          </div>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isFullCar}
+            onChange={(e) => {
+              setIsFullCar(e.target.checked);
+              if (e.target.checked) {
+                const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
+                const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
+                if (origin && destination) {
+                  setStopPoints([origin, destination]);
+                  setToast({
+                    message: 'Switched to full car mode. All intermediate stops removed.',
+                    type: 'info'
+                  });
+                }
+              }
+            }}
+            className="sr-only peer"
+          />
+          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+        </label>
+      </div>
+      
+      {isFullCar && (
+        <div className="mt-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+          <div className="flex items-start gap-2">
+            <Info size={16} className="text-primary mt-0.5" />
+            <div className="text-xs text-foreground">
+              <p className="font-medium mb-1">Full Car Mode Active:</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>No intermediate stops allowed</li>
+                <li>Direct route from pickup to destination</li>
+                <li>Single base fare (not split by segments)</li>
+                <li>Vehicle will be occupied exclusively</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Render Routes Screen
   const renderRoutesScreen = () => (
-    <div className="h-full flex flex-col" style={{ height: 'calc(100vh - 140px)' }}>
+    <div className="h-full flex flex-col">
       {/* Header */}
       <div className="flex-shrink-0">
-        <h1 className="text-2xl font-bold text-foreground">Available Routes</h1>
-        <p className="text-sm text-muted-foreground mt-1 mb-4">
-          Select the best route for your journey
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground">Available Routes</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1 mb-4">
+          {isFullCar ? 'Full car route - No stops allowed' : 'Select the best route for your journey'}
         </p>
       </div>
+
+      {/* Full Car Toggle */}
+      {renderFullCarToggle()}
 
       {/* Route Controls */}
       <div className="flex gap-2 mb-4">
@@ -795,8 +936,8 @@ console.log("Validation Result: ", validation);
         </button>
       </div>
 
-      {/* Route Cards - Fixed height with no scroll */}
-      <div className="flex-1 min-h-0">
+      {/* Route Cards */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {isLoading ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
@@ -805,58 +946,61 @@ console.log("Validation Result: ", validation);
             </div>
           </div>
         ) : routes.length > 0 ? (
-          <div className="h-full overflow-y-auto pr-1">
-            <div className="space-y-3">
-              {routes.map((route) => (
-                <div
-                  key={route.id}
-                  onClick={() => handleRouteSelect(route.id)}
-                  className={`p-4 border rounded-xl cursor-pointer transition-all ${
-                    selectedRoute === route.id
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-primary/50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {/* Route Selection Radio */}
-                      <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                          selectedRoute === route.id ? 'border-primary' : 'border-muted-foreground/40'
-                        }`}
-                      >
-                        {selectedRoute === route.id && (
-                          <div className="w-2.5 h-2.5 rounded-full bg-primary" />
-                        )}
-                      </div>
+          <div className="space-y-3 pb-4">
+            {routes.map((route) => (
+              <div
+                key={route.id}
+                onClick={() => handleRouteSelect(route.id)}
+                className={`p-4 border rounded-xl cursor-pointer transition-all ${
+                  selectedRoute === route.id
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/50'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* Route Selection Radio */}
+                    <div
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                        selectedRoute === route.id ? 'border-primary' : 'border-muted-foreground/40'
+                      }`}
+                    >
+                      {selectedRoute === route.id && (
+                        <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+                      )}
+                    </div>
 
-                      {/* Route Info */}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg font-bold text-foreground">{route.duration}</span>
-                          <span
-                            className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                              route.hasTolls
-                                ? 'bg-primary/10 text-primary'
-                                : 'bg-green-500/10 text-green-600'
-                            }`}
-                          >
-                            {route.hasTolls ? 'With tolls' : 'No tolls'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-sm text-muted-foreground">{route.distance}</span>
-                          <span className="text-xs text-muted-foreground">•</span>
-                          <span className="text-xs text-primary font-medium">
-                            Route #{route.id}
-                          </span>
-                        </div>
+                    {/* Route Info */}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-base sm:text-lg font-bold text-foreground">{route.duration}</span>
+                        <span
+                          className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                            route.hasTolls
+                              ? 'bg-primary/10 text-primary'
+                              : 'bg-green-500/10 text-green-600'
+                          }`}
+                        >
+                          {route.hasTolls ? 'With tolls' : 'No tolls'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs sm:text-sm text-muted-foreground">{route.distance}</span>
+                        <span className="text-xs text-muted-foreground">•</span>
+                        <span className="text-xs text-primary font-medium">
+                          Route #{route.id}
+                        </span>
                       </div>
                     </div>
                   </div>
+                  {isFullCar && (
+                    <span className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-full">
+                      Full Car
+                    </span>
+                  )}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="h-full flex items-center justify-center">
@@ -871,7 +1015,7 @@ console.log("Validation Result: ", validation);
         )}
       </div>
 
-      {/* Continue Button - Fixed at bottom */}
+      {/* Continue Button */}
       <div className="flex-shrink-0 pt-4 border-t border-border">
         <button
           onClick={() => {
@@ -893,7 +1037,7 @@ console.log("Validation Result: ", validation);
             </>
           ) : (
             <>
-              <span>Continue to Add Stops</span>
+              <span className="text-sm sm:text-base">{isFullCar ? 'Continue to Vehicle Selection' : 'Continue to Add Stops'}</span>
               <ChevronRight size={16} />
             </>
           )}
@@ -908,9 +1052,9 @@ console.log("Validation Result: ", validation);
     </div>
   );
 
-  // Render Stops Screen (Left Column) - FIXED HEIGHT
+  // Render Stops Screen
   const renderStopsScreen = () => (
-    <div className="h-full flex flex-col" style={{ height: 'calc(100vh - 140px)' }}>
+    <div className="h-full flex flex-col">
       {/* Header with Back Button */}
       <div className="flex-shrink-0">
         <div className="flex items-center gap-2 mb-4">
@@ -922,134 +1066,189 @@ console.log("Validation Result: ", validation);
             <ArrowLeft size={18} className="text-foreground" />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-foreground">Add Stops</h1>
-            <p className="text-sm text-muted-foreground">
-              Add intermediate stops to your route
+            <h1 className="text-lg sm:text-xl font-bold text-foreground">
+              {isFullCar ? 'Full Car Ride' : 'Add Stops'}
+            </h1>
+            <p className="text-xs sm:text-sm text-muted-foreground">
+              {isFullCar 
+                ? 'Direct ride without intermediate stops' 
+                : 'Add intermediate stops to your route'}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Stop Controls */}
-      <div className="flex gap-2 mb-4 flex-shrink-0">
-        <button
-          onClick={handleOneClickAddStop}
-          disabled={isRecalculating}
-          className="flex-1 py-2.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          <Plus size={14} />
-          Quick Add
-        </button>
-        
-        <button
-          onClick={() => {
-            setIsAddStopMode(true);
-            setToast({ 
-              message: 'Click on map to add a stop', 
-              type: 'info' 
-            });
-          }}
-          disabled={isRecalculating || isAddStopMode}
-          className={`flex-1 py-2.5 text-sm rounded-lg flex items-center justify-center gap-2 ${
-            isAddStopMode
-              ? 'bg-amber-500 text-white'
-              : 'bg-primary text-primary-foreground hover:bg-primary/90'
-          } disabled:opacity-50`}
-        >
-          <Plus size={14} />
-          Add on Map
-        </button>
-      </div>
+      {/* Full Car Toggle */}
+      {renderFullCarToggle()}
 
-      {isAddStopMode && (
-        <div className="mb-3 flex-shrink-0">
-          <button
-            onClick={() => setIsAddStopMode(false)}
-            className="w-full py-2 text-sm bg-muted text-foreground rounded-lg hover:bg-accent"
-          >
-            Cancel Add Stop Mode
-          </button>
-        </div>
-      )}
-
-      {/* Stops List - Fixed height with no scroll */}
-      <div className="flex-1 min-h-0">
-        <div className="h-full overflow-y-auto pr-1">
-          <div className="bg-card rounded-lg p-3 border border-border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-foreground">All Stops ({stopPoints.length})</h3>
-              <div className="text-xs text-muted-foreground">
-                Drag stops on map
+      {/* If Full Car, show info message instead of stop controls */}
+      {isFullCar ? (
+        <div className="mb-4 p-4 bg-primary/10 border border-primary/20 rounded-lg">
+          <div className="flex items-start gap-3">
+            <Info size={20} className="text-primary mt-0.5 flex-shrink-0" />
+            <div>
+              <h3 className="font-medium text-foreground mb-1">Full Car Mode</h3>
+              <p className="text-sm text-muted-foreground">
+                This is a private ride. No intermediate stops are allowed. 
+                The ride will go directly from pickup to destination with a single base fare.
+              </p>
+              <div className="mt-3 p-2 bg-white/50 border border-border rounded text-xs">
+                <div className="flex items-center justify-between">
+                  <span>Pickup:</span>
+                  <span className="font-medium truncate max-w-[100px]">{stopPoints.find(s => s.type === 'ORIGIN')?.name}</span>
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <span>Destination:</span>
+                  <span className="font-medium truncate max-w-[100px]">{stopPoints.find(s => s.type === 'DESTINATION')?.name}</span>
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <span>Distance:</span>
+                  <span className="font-medium">{selectedRouteData?.distance || 'Calculating...'}</span>
+                </div>
               </div>
             </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Stop Controls */}
+          <div className="flex flex-col sm:flex-row gap-2 mb-4 flex-shrink-0">
+            <button
+              onClick={handleOneClickAddStop}
+              disabled={isRecalculating || isFullCar}
+              className={`flex-1 py-2.5 text-sm rounded-lg flex items-center justify-center gap-2 ${
+                isFullCar 
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                  : 'bg-green-500 text-white hover:bg-green-600'
+              } disabled:opacity-50`}
+            >
+              <Plus size={14} />
+              <span>Quick Add</span>
+            </button>
             
-            <div className="space-y-2">
-              {stopPoints
-                .sort((a, b) => a.stopId - b.stopId)
-                .map((stop) => (
-                  <div
-                    key={stop.stopId}
-                    className={`flex items-center justify-between p-2 rounded-lg ${
-                      stop.type === 'ORIGIN' ? 'bg-green-50' :
-                      stop.type === 'DESTINATION' ? 'bg-red-50' :
-                      'bg-blue-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                        stop.type === 'ORIGIN' ? 'bg-green-500 text-white' :
-                        stop.type === 'DESTINATION' ? 'bg-red-500 text-white' :
-                        'bg-blue-500 text-white'
-                      }`}>
-                        {stop.type === 'ORIGIN' && 'P'}
-                        {stop.type === 'DESTINATION' && 'D'}
-                        {stop.type === 'STOP' && stop.stopId - 1}
+            <button
+              onClick={() => {
+                if (isFullCar) {
+                  setAddStopModal({
+                    isOpen: true,
+                    position: null,
+                    address: '',
+                    isValid: false,
+                    validationMessage: ''
+                  });
+                  return;
+                }
+                setIsAddStopMode(true);
+                setToast({ 
+                  message: 'Click on map to add a stop', 
+                  type: 'info' 
+                });
+              }}
+              disabled={isRecalculating || isAddStopMode}
+              className={`flex-1 py-2.5 text-sm rounded-lg flex items-center justify-center gap-2 ${
+                isAddStopMode
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              } disabled:opacity-50`}
+            >
+              <Plus size={14} />
+              <span>Add on Map</span>
+            </button>
+          </div>
+
+          {isAddStopMode && (
+            <div className="mb-3 flex-shrink-0">
+              <button
+                onClick={() => setIsAddStopMode(false)}
+                className="w-full py-2 text-sm bg-muted text-foreground rounded-lg hover:bg-accent"
+              >
+                Cancel Add Stop Mode
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Stops List */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="bg-card rounded-lg p-3 border border-border">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-foreground">
+              {isFullCar ? 'Route Points' : `All Stops (${stopPoints.length})`}
+            </h3>
+            {!isFullCar && (
+              <div className="text-xs text-muted-foreground hidden sm:block">
+                Drag stops on map
+              </div>
+            )}
+          </div>
+          
+          <div className="space-y-2">
+            {stopPoints
+              .sort((a, b) => a.stopId - b.stopId)
+              .map((stop) => (
+                <div
+                  key={stop.stopId}
+                  className={`flex items-center justify-between p-2 rounded-lg ${
+                    stop.type === 'ORIGIN' ? 'bg-green-50' :
+                    stop.type === 'DESTINATION' ? 'bg-red-50' :
+                    'bg-blue-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${
+                      stop.type === 'ORIGIN' ? 'bg-green-500 text-white' :
+                      stop.type === 'DESTINATION' ? 'bg-red-500 text-white' :
+                      'bg-blue-500 text-white'
+                    }`}>
+                      {stop.type === 'ORIGIN' && 'P'}
+                      {stop.type === 'DESTINATION' && 'D'}
+                      {stop.type === 'STOP' && stop.stopId - 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm font-medium text-foreground truncate">
+                          {stop.name}
+                        </span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                          stop.type === 'ORIGIN' ? 'bg-green-100 text-green-800' :
+                          stop.type === 'DESTINATION' ? 'bg-red-100 text-red-800' :
+                          'bg-blue-100 text-blue-800'
+                        }`}>
+                          {stop.type.charAt(0)}
+                        </span>
                       </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1">
-                          <span className="text-sm font-medium text-foreground truncate max-w-[120px]">
-                            {stop.name}
-                          </span>
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                            stop.type === 'ORIGIN' ? 'bg-green-100 text-green-800' :
-                            stop.type === 'DESTINATION' ? 'bg-red-100 text-red-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {stop.type.charAt(0)}
-                          </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate max-w-[140px]">
-                          {stop.address}
-                        </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {stop.address}
                       </div>
                     </div>
-                    {stop.type === 'STOP' && (
-                      <button
-                        onClick={() => removeStop(stop.stopId)}
-                        className="p-1 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
-                        aria-label="Remove stop"
-                      >
-                        <Trash2 size={14} className="text-red-500" />
-                      </button>
-                    )}
                   </div>
-                ))}
-
-              {stopPoints.filter(stop => stop.type === 'STOP').length === 0 && (
-                <div className="text-center py-4 text-muted-foreground border border-dashed border-border rounded-lg">
-                  <MapPin className="w-6 h-6 mx-auto mb-1 opacity-50" />
-                  <p className="text-sm">No intermediate stops</p>
-                  <p className="text-xs mt-0.5">
-                    Add stops to customize route
-                  </p>
+                  {stop.type === 'STOP' && !isFullCar && (
+                    <button
+                      onClick={() => removeStop(stop.stopId)}
+                      className="p-1 hover:bg-red-500/10 rounded transition-colors flex-shrink-0 ml-2"
+                      aria-label="Remove stop"
+                    >
+                      <Trash2 size={14} className="text-red-500" />
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
+              ))}
+
+            {!isFullCar && stopPoints.filter(stop => stop.type === 'STOP').length === 0 && (
+              <div className="text-center py-4 text-muted-foreground border border-dashed border-border rounded-lg">
+                <MapPin className="w-6 h-6 mx-auto mb-1 opacity-50" />
+                <p className="text-sm">No intermediate stops</p>
+                <p className="text-xs mt-0.5">
+                  Add stops to customize route
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Continue to Next Button - Fixed at bottom */}
+      {/* Continue to Next Button */}
       <div className="flex-shrink-0 pt-3 border-t border-border">
         <button
           onClick={handleNext}
@@ -1067,24 +1266,36 @@ console.log("Validation Result: ", validation);
             </>
           ) : (
             <>
-              <span>Continue to Vehicle Selection</span>
+              <span className="text-sm sm:text-base">Continue to Vehicle Selection</span>
               <ChevronRight size={16} />
             </>
           )}
         </button>
         
         <div className="text-center mt-2 text-xs text-muted-foreground">
+          {isFullCar && <span className="text-primary font-medium">Full Car • </span>}
           Route #{selectedRoute} • {selectedRouteData?.distance} • {selectedRouteData?.duration}
         </div>
       </div>
     </div>
   );
 
+  // Mobile Floating Action Button for Map Toggle
+  const MobileFAB = () => (
+    <button
+      onClick={() => setMapExpanded(!mapExpanded)}
+      className="fixed bottom-20 right-4 z-40 p-3 bg-primary text-white rounded-full shadow-lg flex items-center justify-center"
+      aria-label={mapExpanded ? "Show options" : "Expand map"}
+    >
+      {mapExpanded ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+    </button>
+  );
+
   return (
     <div className="h-screen overflow-hidden bg-background flex flex-col">
       <Navbar />
 
-      {/* Back Button (Fixed to go back to OfferRide1) */}
+      {/* Back Button */}
       <button
         onClick={() => navigate(-1)}
         className="fixed top-20 left-4 z-20 p-2 bg-card hover:bg-accent rounded-full transition-colors border border-border"
@@ -1120,20 +1331,199 @@ console.log("Validation Result: ", validation);
         address={addStopModal.address}
         isValid={addStopModal.isValid}
         validationMessage={addStopModal.validationMessage}
+        isFullCar={isFullCar}
       />
 
       <div className="flex-1 pt-16 overflow-hidden">
-        <div className="h-full max-w-6xl mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* LEFT COLUMN - Fixed height container */}
-          <div className="h-full">
-            <div className="bg-card rounded-xl p-4 border border-border h-full">
-              {currentScreen === 'routes' ? renderRoutesScreen() : renderStopsScreen()}
+        {/* Responsive Layout */}
+        <div className={`h-full ${isMobile ? (mapExpanded ? 'hidden' : 'block') : 'max-w-6xl mx-auto px-4 py-4'}`}>
+          {/* Mobile - Full width panel when map is not expanded */}
+          {isMobile ? (
+            <div className="h-full bg-card">
+              <div className="p-4 h-full">
+                {currentScreen === 'routes' ? renderRoutesScreen() : renderStopsScreen()}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Desktop/Tablet - Responsive grid */
+            <div className={`grid gap-4 h-full ${isTablet ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
+              {/* Options Panel */}
+              <div className={`${isTablet ? (mapExpanded ? 'hidden' : 'block') : 'h-full'}`}>
+                <div className="bg-card rounded-xl p-4 border border-border h-full">
+                  {currentScreen === 'routes' ? renderRoutesScreen() : renderStopsScreen()}
+                </div>
+              </div>
 
-          {/* RIGHT COLUMN - Google Map - Fixed height */}
+              {/* Map Panel */}
+              <div className={`${isTablet ? (mapExpanded ? 'col-span-2' : 'hidden') : 'h-full'}`}>
+                <div ref={mapContainerRef} className="h-full rounded-xl overflow-hidden border border-border bg-muted relative">
+                  {isLoaded && (
+                    <>
+                      <GoogleMap
+                        mapContainerStyle={{ width: '100%', height: '100%' }}
+                        center={mapCenter}
+                        zoom={mapZoom}
+                        onLoad={(map) => setMap(map)}
+                        onClick={handleMapClick}
+                        options={{
+                          streetViewControl: false,
+                          mapTypeControl: false,
+                          fullscreenControl: false,
+                          zoomControl: true,
+                          clickableIcons: false,
+                          styles: [
+                            {
+                              featureType: 'poi',
+                              elementType: 'labels',
+                              stylers: [{ visibility: 'off' }]
+                            }
+                          ]
+                        }}
+                      >
+                        {/* Render all stops as markers */}
+                        {stopPoints.map((stop) => (
+                          <Marker
+                            key={stop.stopId}
+                            position={{ lat: stop.lat, lng: stop.lng }}
+                            draggable={stop.type === 'STOP' && !isFullCar}
+                            onDragStart={() => setActiveStopIndex(stop.stopId)}
+                            onDragEnd={(e) => {
+                              if (!e.latLng || isFullCar) return;
+                              const lat = e.latLng.lat();
+                              const lng = e.latLng.lng();
+                              
+                              const origin = stopPoints.find(s => s.type === 'ORIGIN');
+                              const destination = stopPoints.find(s => s.type === 'DESTINATION');
+                              
+                              if (!origin || !destination || stop.type === 'ORIGIN' || stop.type === 'DESTINATION') {
+                                return;
+                              }
+                              
+                              const updatedStops = stopPoints.map(s => 
+                                s.stopId === stop.stopId 
+                                  ? { ...s, lat, lng }
+                                  : s
+                              );
+                              setStopPoints(updatedStops);
+                              setActiveStopIndex(null);
+                              
+                              setIsRecalculating(true);
+                              setTimeout(() => {
+                                loadRoutes(updatedStops);
+                                setIsRecalculating(false);
+                              }, 500);
+                            }}
+                            icon={{
+                              path: google.maps.SymbolPath.CIRCLE,
+                              fillColor: stop.type === 'ORIGIN' ? '#10B981' :
+                                        stop.type === 'DESTINATION' ? '#EF4444' :
+                                        activeStopIndex === stop.stopId ? '#8B5CF6' : '#3B82F6',
+                              fillOpacity: 1,
+                              strokeColor: '#FFFFFF',
+                              strokeWeight: 2,
+                              scale: stop.type === 'STOP' ? 7 : 9
+                            }}
+                            label={{
+                              text: stop.type === 'ORIGIN' ? 'P' : 
+                                    stop.type === 'DESTINATION' ? 'D' : 
+                                    (stop.stopId - 1).toString(),
+                              color: '#FFFFFF',
+                              fontSize: stop.type === 'STOP' ? '10px' : '12px',
+                              fontWeight: 'bold'
+                            }}
+                          />
+                        ))}
+
+                        {/* Route Polyline */}
+                        <Polyline
+                          path={polylinePath.length > 0 ? polylinePath : fallbackPolylinePath}
+                          options={{
+                            strokeColor: isFullCar ? '#8B5CF6' : '#3B82F6',
+                            strokeOpacity: 0.7,
+                            strokeWeight: isFullCar ? 4 : 3,
+                            geodesic: true
+                          }}
+                        />
+                      </GoogleMap>
+                    </>
+                  )}
+
+                  {/* Map Controls */}
+                  <div className="absolute top-3 left-3 z-10 bg-card/95 backdrop-blur-sm px-3 py-1.5 rounded-lg text-sm font-medium text-foreground border border-border shadow-sm max-w-[80%]">
+                    <div className="flex items-center gap-1">
+                      <Navigation size={12} className={isFullCar ? "text-purple-500" : "text-primary"} />
+                      <span className="truncate">
+                        {stopPoints.find(s => s.type === 'ORIGIN')?.name || 'Origin'} → 
+                        {stopPoints.find(s => s.type === 'DESTINATION')?.name || 'Destination'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {isFullCar ? 'Full Car • No Stops' : `${stopPoints.filter(stop => stop.type === 'STOP').length} intermediate stops`}
+                    </div>
+                    {selectedRouteData && (
+                      <div className={`text-xs font-medium mt-1 ${isFullCar ? 'text-purple-600' : 'text-primary'}`}>
+                        {selectedRouteData.distance} • {selectedRouteData.duration}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Map Mode Indicator */}
+                  {isAddStopMode && !isFullCar && (
+                    <div className="absolute top-3 right-3 z-10 bg-amber-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm animate-pulse">
+                      <Map size={12} className="inline mr-1" />
+                      <span className="hidden sm:inline">Click to add stop</span>
+                      <span className="sm:hidden">Add stop</span>
+                    </div>
+                  )}
+
+                  {/* Full Car Indicator */}
+                  {isFullCar && (
+                    <div className="absolute top-3 right-3 z-10 bg-purple-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm">
+                      <Navigation size={12} className="inline mr-1" />
+                      <span className="hidden sm:inline">Full Car Mode</span>
+                      <span className="sm:hidden">Full Car</span>
+                    </div>
+                  )}
+
+                  {/* Back to Options Button (Tablet) */}
+                  {isTablet && mapExpanded && (
+                    <button
+                      onClick={() => setMapExpanded(false)}
+                      className="absolute top-3 left-3 z-10 p-2 bg-white rounded-full shadow-lg"
+                    >
+                      <ArrowLeft size={20} />
+                    </button>
+                  )}
+
+                  {/* Map Legend */}
+                  <div className={`absolute bottom-3 left-3 z-10 bg-card/95 backdrop-blur-sm px-2 py-1.5 rounded-lg text-xs border border-border shadow-sm ${isMobile ? 'hidden' : 'block'}`}>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                        <span>Origin</span>
+                      </div>
+                      {!isFullCar && (
+                        <div className="flex items-center gap-1">
+                          <div className="w-2.5 h-2.5 rounded-full bg-blue-500"></div>
+                          <span>Stops</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                        <span>Drop</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Mobile Map Full Screen View */}
+        {isMobile && mapExpanded && (
           <div className="h-full">
-            <div ref={mapContainerRef} className="h-full rounded-xl overflow-hidden border border-border bg-muted relative">
+            <div ref={mapContainerRef} className="h-full w-full">
               {isLoaded && (
                 <>
                   <GoogleMap
@@ -1162,10 +1552,10 @@ console.log("Validation Result: ", validation);
                       <Marker
                         key={stop.stopId}
                         position={{ lat: stop.lat, lng: stop.lng }}
-                        draggable={stop.type === 'STOP'}
+                        draggable={stop.type === 'STOP' && !isFullCar}
                         onDragStart={() => setActiveStopIndex(stop.stopId)}
                         onDragEnd={(e) => {
-                          if (!e.latLng) return;
+                          if (!e.latLng || isFullCar) return;
                           const lat = e.latLng.lat();
                           const lng = e.latLng.lng();
                           
@@ -1215,9 +1605,9 @@ console.log("Validation Result: ", validation);
                     <Polyline
                       path={polylinePath.length > 0 ? polylinePath : fallbackPolylinePath}
                       options={{
-                        strokeColor: '#3B82F6',
+                        strokeColor: isFullCar ? '#8B5CF6' : '#3B82F6',
                         strokeOpacity: 0.7,
-                        strokeWeight: 3,
+                        strokeWeight: isFullCar ? 4 : 3,
                         geodesic: true
                       }}
                     />
@@ -1225,53 +1615,43 @@ console.log("Validation Result: ", validation);
                 </>
               )}
 
-              {/* Map Controls */}
-              <div className="absolute top-3 left-3 z-10 bg-card/95 backdrop-blur-sm px-3 py-1.5 rounded-lg text-sm font-medium text-foreground border border-border shadow-sm">
-                <div className="flex items-center gap-1">
-                  <Navigation size={12} className="text-primary" />
-                  <span className="max-w-[180px] truncate">
-                    {stopPoints.find(s => s.type === 'ORIGIN')?.name || 'Origin'} → 
-                    {stopPoints.find(s => s.type === 'DESTINATION')?.name || 'Destination'}
-                  </span>
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {stopPoints.filter(stop => stop.type === 'STOP').length} intermediate stops
-                </div>
-                {selectedRouteData && (
-                  <div className="text-xs text-primary font-medium mt-1">
-                    {selectedRouteData.distance} • {selectedRouteData.duration}
-                  </div>
-                )}
-              </div>
+              {/* Mobile Map Controls */}
+              <button
+                onClick={() => setMapExpanded(false)}
+                className="absolute top-4 left-4 z-10 p-2 bg-white rounded-full shadow-lg"
+              >
+                <ArrowLeft size={20} />
+              </button>
 
-              {/* Map Mode Indicator */}
-              {isAddStopMode && (
-                <div className="absolute top-3 right-3 z-10 bg-amber-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm animate-pulse">
-                  <Map size={12} className="inline mr-1" />
-                  Click to add stop
-                </div>
-              )}
-
-              {/* Map Legend */}
-              <div className="absolute bottom-3 left-3 z-10 bg-card/95 backdrop-blur-sm px-2 py-1.5 rounded-lg text-xs border border-border shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                    <span>Origin</span>
+              {/* Mobile Route Info */}
+              <div className="absolute bottom-20 left-4 right-4 z-10 bg-white/95 backdrop-blur-sm p-3 rounded-lg shadow-lg border">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">
+                      {stopPoints.find(s => s.type === 'ORIGIN')?.name} → 
+                      {stopPoints.find(s => s.type === 'DESTINATION')?.name}
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
+                      <span>{selectedRouteData?.distance}</span>
+                      <span>•</span>
+                      <span>{selectedRouteData?.duration}</span>
+                      {isFullCar && <span className="text-purple-600 font-medium">• Full Car</span>}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-full bg-blue-500"></div>
-                    <span>Stops</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                    <span>Drop</span>
-                  </div>
+                  <button
+                    onClick={() => setMapExpanded(false)}
+                    className="ml-2 px-3 py-1.5 bg-primary text-white text-sm rounded-lg flex-shrink-0"
+                  >
+                    Options
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Mobile FAB */}
+        {isMobile && <MobileFAB />}
       </div>
     </div>
   );

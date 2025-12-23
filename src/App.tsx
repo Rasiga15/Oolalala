@@ -29,9 +29,11 @@ import Wallet from "./components/wallet/wallet";
 import WithdrawMoney from "./components/wallet/withdraw";
 import AddPaymentMethod from "./components/wallet/addpaymentmethod";
 import DriverManagementMainScreen from "./components/Profile/DriverManagementMainScreen";
-import FindRideStep2 from "./components/Findride/FindRideStep2";
-import FindRideStep3 from "./components/Findride/FindRideStep3";
+
+import FindRideStep3 from "./components/Findride/FindRideStep";
 import FindRideSuccess from "./components/Findride/FindRideSuccess";
+import { MyRidesPanel } from "./pages/Myridepanel";
+
 
 
 
@@ -110,9 +112,12 @@ const AppRoutes = () => {
         {/* Protected Routes - Main App */}
         <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
         <Route path="/find-ride" element={<ProtectedRoute><FindRide /></ProtectedRoute>} />
-        <Route path="/find-ride2" element={<ProtectedRoute><FindRideStep2 /></ProtectedRoute>} />
+       
           <Route path="/find-ride3" element={<ProtectedRoute><FindRideStep3 /></ProtectedRoute>} />
           <Route path="/find-ride/success" element={<ProtectedRoute><FindRideSuccess /></ProtectedRoute>} />
+
+
+          <Route path="/my-rides" element={<ProtectedRoute><MyRidesPanel /></ProtectedRoute>} />
 
         <Route path="/offer-ride1" element={<ProtectedRoute><OfferRide1 /></ProtectedRoute>} />
         <Route path="/offer-ride2" element={<ProtectedRoute><OfferRide2 /></ProtectedRoute>} />

@@ -1,3 +1,4 @@
+// src/pages/offer-ride/OfferRide1.tsx - SIMPLIFIED VERSION
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   MapPin,
@@ -11,7 +12,6 @@ import {
   X,
   ArrowLeft,
   Navigation,
-  MapPinOff,
   AlertCircle,
 } from 'lucide-react';
 import Navbar from '../layout/Navbar';
@@ -22,7 +22,6 @@ import {
   Place, 
   getCurrentLocation, 
   reverseGeocode,
-  isLocationWithinCity,
   calculateDistance 
 } from '../../services/placesApi';
 import { Location } from '../../types';
@@ -39,6 +38,8 @@ const OfferRide1: React.FC = () => {
   const [seats, setSeats] = useState(2);
   const [preferences, setPreferences] = useState<string[]>([]);
   const [selectedPreferences, setSelectedPreferences] = useState<string[]>([]);
+  const [distance, setDistance] = useState<number | null>(null);
+  const [distanceError, setDistanceError] = useState<string>('');
   
   // API data
   const [settings, setSettings] = useState<any>(null);
@@ -51,14 +52,6 @@ const OfferRide1: React.FC = () => {
   const [selectedPickup, setSelectedPickup] = useState<Location | null>(null);
   const [selectedDrop, setSelectedDrop] = useState<Location | null>(null);
   
-  // City selection state
-  const [pickupCity, setPickupCity] = useState<{ name: string; location?: { lat: number; lng: number } } | null>(null);
-  const [dropCity, setDropCity] = useState<{ name: string; location?: { lat: number; lng: number } } | null>(null);
-  const [pickupExactLocation, setPickupExactLocation] = useState<string>('');
-  const [dropExactLocation, setDropExactLocation] = useState<string>('');
-  const [showExactPickupSearch, setShowExactPickupSearch] = useState(false);
-  const [showExactDropSearch, setShowExactDropSearch] = useState(false);
-  
   // Loading states
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [loadingPreferences, setLoadingPreferences] = useState(true);
@@ -70,8 +63,6 @@ const OfferRide1: React.FC = () => {
   
   const pickupRef = useRef<HTMLDivElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
-  const exactPickupRef = useRef<HTMLDivElement>(null);
-  const exactDropRef = useRef<HTMLDivElement>(null);
   const debounceTimeout = useRef<NodeJS.Timeout>();
 
   // Initialize
@@ -80,9 +71,36 @@ const OfferRide1: React.FC = () => {
     const formattedDate = today.toISOString().split('T')[0];
     setDate(formattedDate);
     
+    // Disable previous dates
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const minDate = todayDate.toISOString().split('T')[0];
+    const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+    if (dateInput) {
+      dateInput.min = minDate;
+    }
+    
     loadSettings();
     loadPreferences();
   }, []);
+
+  useEffect(() => {
+    // Calculate distance when both locations are selected
+    if (selectedPickup && selectedDrop) {
+      const calculatedDistance = calculateDistance(
+        { lat: selectedPickup.lat, lng: selectedPickup.lng },
+        { lat: selectedDrop.lat, lng: selectedDrop.lng }
+      );
+      setDistance(calculatedDistance);
+      
+      // Validate distance is at least 100 km
+      if (calculatedDistance < 100) {
+        setDistanceError(`Distance must be at least 100 km (Current: ${calculatedDistance.toFixed(1)} km)`);
+      } else {
+        setDistanceError('');
+      }
+    }
+  }, [selectedPickup, selectedDrop]);
 
   const loadSettings = async () => {
     try {
@@ -107,40 +125,62 @@ const OfferRide1: React.FC = () => {
     }
   };
 
-  // Handle city selection
-  const handlePickupCitySelect = (place: Place) => {
-    const cityName = extractCityName(place.displayName.text);
-    setPickupCity({
-      name: cityName,
-      location: place.location
-    });
-    setPickupLocation(cityName);
-    setPickupExactLocation('');
-    setSelectedPickup(null);
-    setShowExactPickupSearch(true);
+  // Handle location selection
+  const handlePickupSelect = (place: Place) => {
+    const location: Location = {
+      lat: place.location?.latitude || 0,
+      lng: place.location?.longitude || 0,
+      address: place.displayName.text,
+      placeId: place.id,
+    };
+    
+    // Check if this is same as selected drop location
+    if (selectedDrop && selectedDrop.lat && selectedDrop.lng) {
+      const distance = calculateDistance(
+        { lat: location.lat, lng: location.lng },
+        { lat: selectedDrop.lat, lng: selectedDrop.lng }
+      );
+      
+      if (distance < 0.1) { // Less than 100 meters
+        setError('Pickup and drop locations cannot be the same or too close. Please select different locations.');
+        return;
+      }
+    }
+    
+    setPickupLocation(place.displayName.text);
+    setSelectedPickup(location);
     setShowPickupSuggestions(false);
+    setError(null);
   };
 
-  const handleDropCitySelect = (place: Place) => {
-    const cityName = extractCityName(place.displayName.text);
-    setDropCity({
-      name: cityName,
-      location: place.location
-    });
-    setDropLocation(cityName);
-    setDropExactLocation('');
-    setSelectedDrop(null);
-    setShowExactDropSearch(true);
+  const handleDropSelect = (place: Place) => {
+    const location: Location = {
+      lat: place.location?.latitude || 0,
+      lng: place.location?.longitude || 0,
+      address: place.displayName.text,
+      placeId: place.id,
+    };
+    
+    // Check if this is same as selected pickup location
+    if (selectedPickup && selectedPickup.lat && selectedPickup.lng) {
+      const distance = calculateDistance(
+        { lat: location.lat, lng: location.lng },
+        { lat: selectedPickup.lat, lng: selectedPickup.lng }
+      );
+      
+      if (distance < 0.1) { // Less than 100 meters
+        setError('Drop and pickup locations cannot be the same or too close. Please select different locations.');
+        return;
+      }
+    }
+    
+    setDropLocation(place.displayName.text);
+    setSelectedDrop(location);
     setShowDropSuggestions(false);
+    setError(null);
   };
 
-  // Extract city name from address
-  const extractCityName = (address: string): string => {
-    const parts = address.split(',');
-    return parts[0].trim();
-  };
-
-  // Debounced search for pickup city
+  // Debounced search for pickup
   const searchPickupPlaces = useCallback((query: string) => {
     if (debounceTimeout.current) {
       clearTimeout(debounceTimeout.current);
@@ -163,7 +203,7 @@ const OfferRide1: React.FC = () => {
     }, 300);
   }, []);
 
-  // Debounced search for drop city
+  // Debounced search for drop
   const searchDropPlaces = useCallback((query: string) => {
     if (debounceTimeout.current) {
       clearTimeout(debounceTimeout.current);
@@ -186,129 +226,14 @@ const OfferRide1: React.FC = () => {
     }, 300);
   }, []);
 
-  // Debounced search for exact location within city
-  const searchExactLocation = async (query: string, cityLocation: { lat: number; lng: number }) => {
-    if (query.length < 2) {
-      return [];
-    }
-
-    try {
-      const results = await autocompletePlaces(query, {
-        lat: cityLocation.lat,
-        lng: cityLocation.lng,
-        radius: 20000 // 20km radius within city
-      });
-      return results;
-    } catch (error) {
-      console.error('Error searching exact location:', error);
-      setError('Failed to search exact location. Please try again.');
-      return [];
-    }
-  };
-
-  // Handle exact location selection
-  const handleExactPickupSelect = async (place: Place) => {
-    if (!pickupCity?.location) return;
-
-    try {
-      // Check if location is within the selected city
-      const isWithinCity = await isLocationWithinCity(
-        { lat: place.location?.latitude || 0, lng: place.location?.longitude || 0 },
-        { lat: pickupCity.location.latitude || pickupCity.location.lat || 0, 
-          lng: pickupCity.location.longitude || pickupCity.location.lng || 0 }
-      );
-
-      if (!isWithinCity) {
-        setError('Please select a location within ' + pickupCity.name);
-        return;
-      }
-
-      const location: Location = {
-        lat: place.location?.latitude || 0,
-        lng: place.location?.longitude || 0,
-        address: place.displayName.text,
-        placeId: place.id,
-      };
-      
-      // Check if this is same as selected drop location
-      if (selectedDrop && selectedDrop.lat && selectedDrop.lng) {
-        const distance = calculateDistance(
-          { lat: location.lat, lng: location.lng },
-          { lat: selectedDrop.lat, lng: selectedDrop.lng }
-        );
-        
-        if (distance < 0.1) { // Less than 100 meters
-          setError('Pickup and drop locations cannot be the same or too close. Please select different locations.');
-          return;
-        }
-      }
-      
-      setPickupExactLocation(place.displayName.text);
-      setSelectedPickup(location);
-      setShowExactPickupSearch(false);
-      setError(null);
-    } catch (error) {
-      console.error('Error selecting exact pickup:', error);
-      setError('Failed to select pickup location. Please try again.');
-    }
-  };
-
-  const handleExactDropSelect = async (place: Place) => {
-    if (!dropCity?.location) return;
-
-    try {
-      // Check if location is within the selected city
-      const isWithinCity = await isLocationWithinCity(
-        { lat: place.location?.latitude || 0, lng: place.location?.longitude || 0 },
-        { lat: dropCity.location.latitude || dropCity.location.lat || 0, 
-          lng: dropCity.location.longitude || dropCity.location.lng || 0 }
-      );
-
-      if (!isWithinCity) {
-        setError('Please select a location within ' + dropCity.name);
-        return;
-      }
-
-      const location: Location = {
-        lat: place.location?.latitude || 0,
-        lng: place.location?.longitude || 0,
-        address: place.displayName.text,
-        placeId: place.id,
-      };
-      
-      // Check if this is same as selected pickup location
-      if (selectedPickup && selectedPickup.lat && selectedPickup.lng) {
-        const distance = calculateDistance(
-          { lat: location.lat, lng: location.lng },
-          { lat: selectedPickup.lat, lng: selectedPickup.lng }
-        );
-        
-        if (distance < 0.1) { // Less than 100 meters
-          setError('Drop and pickup locations cannot be the same or too close. Please select different locations.');
-          return;
-        }
-      }
-      
-      setDropExactLocation(place.displayName.text);
-      setSelectedDrop(location);
-      setShowExactDropSearch(false);
-      setError(null);
-    } catch (error) {
-      console.error('Error selecting exact drop:', error);
-      setError('Failed to select drop location. Please try again.');
-    }
-  };
-
   // Current location handler for pickup
   const handleCurrentLocationPickup = async () => {
     setGettingCurrentLocationPickup(true);
     setError(null);
     
     try {
-      // Get current location using browser geolocation
       const currentPos = await getCurrentLocation();
       
-      // Reverse geocode to get address
       const reverseResults = await reverseGeocode(currentPos.lat, currentPos.lng);
       
       if (reverseResults.length === 0) {
@@ -316,9 +241,7 @@ const OfferRide1: React.FC = () => {
       }
       
       const address = reverseResults[0].displayName.text;
-      const cityName = extractCityName(address);
       
-      // Create pickup location object
       const pickupLocationObj: Location = {
         lat: currentPos.lat,
         lng: currentPos.lng,
@@ -333,23 +256,14 @@ const OfferRide1: React.FC = () => {
           { lat: selectedDrop.lat, lng: selectedDrop.lng }
         );
         
-        if (distance < 0.1) { // Less than 100 meters
+        if (distance < 0.1) {
           setError('Pickup and drop locations cannot be the same or too close. Please select different locations.');
           return;
         }
       }
       
-      // Set pickup city and exact location
-      setPickupCity({
-        name: cityName,
-        location: currentPos
-      });
-      setPickupLocation(cityName);
-      setPickupExactLocation(address);
+      setPickupLocation(address);
       setSelectedPickup(pickupLocationObj);
-      setShowExactPickupSearch(true);
-      
-      // Clear any previous suggestions
       setPickupSuggestions([]);
       setShowPickupSuggestions(false);
       
@@ -376,10 +290,8 @@ const OfferRide1: React.FC = () => {
     setError(null);
     
     try {
-      // Get current location using browser geolocation
       const currentPos = await getCurrentLocation();
       
-      // Reverse geocode to get address
       const reverseResults = await reverseGeocode(currentPos.lat, currentPos.lng);
       
       if (reverseResults.length === 0) {
@@ -387,9 +299,7 @@ const OfferRide1: React.FC = () => {
       }
       
       const address = reverseResults[0].displayName.text;
-      const cityName = extractCityName(address);
       
-      // Create drop location object
       const dropLocationObj: Location = {
         lat: currentPos.lat,
         lng: currentPos.lng,
@@ -404,23 +314,14 @@ const OfferRide1: React.FC = () => {
           { lat: selectedPickup.lat, lng: selectedPickup.lng }
         );
         
-        if (distance < 0.1) { // Less than 100 meters
+        if (distance < 0.1) {
           setError('Drop and pickup locations cannot be the same or too close. Please select different locations.');
           return;
         }
       }
       
-      // Set drop city and exact location
-      setDropCity({
-        name: cityName,
-        location: currentPos
-      });
-      setDropLocation(cityName);
-      setDropExactLocation(address);
+      setDropLocation(address);
       setSelectedDrop(dropLocationObj);
-      setShowExactDropSearch(true);
-      
-      // Clear any previous suggestions
       setDropSuggestions([]);
       setShowDropSuggestions(false);
       
@@ -469,8 +370,14 @@ const OfferRide1: React.FC = () => {
       { lat: selectedDrop.lat, lng: selectedDrop.lng }
     );
     
-    if (distance < 0.1) { // Less than 100 meters
+    if (distance < 0.1) {
       setError('Pickup and drop locations cannot be the same or too close. Please select different locations.');
+      return;
+    }
+
+    // Check if distance is at least 100 km
+    if (distance < 100) {
+      setError(`Distance must be at least 100 km (Current: ${distance.toFixed(1)} km)`);
       return;
     }
 
@@ -487,7 +394,7 @@ const OfferRide1: React.FC = () => {
       seats,
       preferences: selectedPreferences,
       selectedRoute: null,
-      totalDistance: distance, // Add distance here
+      totalDistance: distance,
       totalDuration: 0,
       settings,
     };
@@ -503,12 +410,6 @@ const OfferRide1: React.FC = () => {
       }
       if (dropRef.current && !dropRef.current.contains(event.target as Node)) {
         setShowDropSuggestions(false);
-      }
-      if (exactPickupRef.current && !exactPickupRef.current.contains(event.target as Node)) {
-        setShowExactPickupSearch(false);
-      }
-      if (exactDropRef.current && !exactDropRef.current.contains(event.target as Node)) {
-        setShowExactDropSearch(false);
       }
     };
 
@@ -530,11 +431,11 @@ const OfferRide1: React.FC = () => {
       </button>
 
       {/* Error Toast Notification */}
-      {error && (
+      {(error || distanceError) && (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in">
           <AlertCircle size={18} />
-          <span className="font-medium">{error}</span>
-          <button onClick={() => setError(null)} className="ml-2">
+          <span className="font-medium">{error || distanceError}</span>
+          <button onClick={() => {setError(null); setDistanceError('');}} className="ml-2">
             <X size={16} />
           </button>
         </div>
@@ -558,7 +459,7 @@ const OfferRide1: React.FC = () => {
             {/* PICKUP & DROP IN SINGLE ROW */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* PICKUP LOCATION */}
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <div className="relative" ref={pickupRef}>
                   <div className="bg-card rounded-xl p-4 border border-border">
                     <div className="flex items-center gap-3">
@@ -574,7 +475,7 @@ const OfferRide1: React.FC = () => {
                             setShowPickupSuggestions(true);
                           }
                         }}
-                        placeholder="Enter pickup city"
+                        placeholder="Enter pickup location"
                         className="w-full font-semibold outline-none bg-transparent placeholder:text-muted-foreground"
                       />
                       <button
@@ -589,14 +490,14 @@ const OfferRide1: React.FC = () => {
                           <Navigation size={16} className="text-primary" />
                         )}
                       </button>
-                      {pickupLocation && !pickupCity && (
+                      {pickupLocation && (
                         <button
                           onClick={() => {
                             setPickupLocation('');
                             setSelectedPickup(null);
-                            setPickupCity(null);
-                            setPickupExactLocation('');
                             setPickupSuggestions([]);
+                            setDistance(null);
+                            setDistanceError('');
                           }}
                           className="p-1 hover:bg-muted rounded-full"
                         >
@@ -604,21 +505,15 @@ const OfferRide1: React.FC = () => {
                         </button>
                       )}
                     </div>
-                    {pickupCity && (
-                      <div className="mt-2 text-xs text-primary flex items-center gap-1">
-                        <MapPin size={12} />
-                        City selected: {pickupCity.name}
-                      </div>
-                    )}
                   </div>
                   
-                  {/* Pickup City Suggestions */}
-                  {showPickupSuggestions && pickupSuggestions.length > 0 && !pickupCity && (
+                  {/* Pickup Suggestions */}
+                  {showPickupSuggestions && pickupSuggestions.length > 0 && (
                     <div className="absolute z-10 mt-1 w-full bg-card border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {pickupSuggestions.map((place) => (
                         <div
                           key={place.id}
-                          onClick={() => handlePickupCitySelect(place)}
+                          onClick={() => handlePickupSelect(place)}
                           className="px-4 py-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
                         >
                           <div className="font-medium text-foreground">{place.displayName.text}</div>
@@ -630,72 +525,10 @@ const OfferRide1: React.FC = () => {
                     </div>
                   )}
                 </div>
-
-                {/* Exact Pickup Location (shown after city selection) */}
-                {pickupCity && (
-                  <div className="relative" ref={exactPickupRef}>
-                    <div className="bg-card rounded-xl p-4 border border-border">
-                      <div className="flex items-center gap-3">
-                        <MapPin className="text-green-500" size={18} />
-                        <input
-                          value={pickupExactLocation}
-                          onChange={async (e) => {
-                            setPickupExactLocation(e.target.value);
-                            if (e.target.value.length >= 2 && pickupCity.location) {
-                              const results = await searchExactLocation(e.target.value, {
-                                lat: pickupCity.location.latitude || pickupCity.location.lat || 0,
-                                lng: pickupCity.location.longitude || pickupCity.location.lng || 0
-                              });
-                              setPickupSuggestions(results);
-                              setShowExactPickupSearch(true);
-                            }
-                          }}
-                          onFocus={() => {
-                            if (pickupCity.location) {
-                              setShowExactPickupSearch(true);
-                            }
-                          }}
-                          placeholder={`Enter exact location in ${pickupCity.name}`}
-                          className="w-full font-semibold outline-none bg-transparent placeholder:text-muted-foreground"
-                        />
-                        <button
-                          onClick={() => {
-                            setPickupExactLocation('');
-                            setSelectedPickup(null);
-                          }}
-                          className="p-1 hover:bg-muted rounded-full"
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Select area, landmark, street, or junction
-                      </div>
-                    </div>
-                    
-                    {/* Exact Location Suggestions */}
-                    {showExactPickupSearch && pickupSuggestions.length > 0 && (
-                      <div className="absolute z-10 mt-1 w-full bg-card border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                        {pickupSuggestions.map((place) => (
-                          <div
-                            key={place.id}
-                            onClick={() => handleExactPickupSelect(place)}
-                            className="px-4 py-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
-                          >
-                            <div className="font-medium text-foreground">{place.displayName.text}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {place.formattedAddress}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* DROP LOCATION */}
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <div className="relative" ref={dropRef}>
                   <div className="bg-card rounded-xl p-4 border border-border">
                     <div className="flex items-center gap-3">
@@ -711,7 +544,7 @@ const OfferRide1: React.FC = () => {
                             setShowDropSuggestions(true);
                           }
                         }}
-                        placeholder="Enter drop city"
+                        placeholder="Enter drop location"
                         className="w-full font-semibold outline-none bg-transparent placeholder:text-muted-foreground"
                       />
                       <button
@@ -726,14 +559,14 @@ const OfferRide1: React.FC = () => {
                           <Navigation size={16} className="text-primary" />
                         )}
                       </button>
-                      {dropLocation && !dropCity && (
+                      {dropLocation && (
                         <button
                           onClick={() => {
                             setDropLocation('');
                             setSelectedDrop(null);
-                            setDropCity(null);
-                            setDropExactLocation('');
                             setDropSuggestions([]);
+                            setDistance(null);
+                            setDistanceError('');
                           }}
                           className="p-1 hover:bg-muted rounded-full"
                         >
@@ -741,21 +574,15 @@ const OfferRide1: React.FC = () => {
                         </button>
                       )}
                     </div>
-                    {dropCity && (
-                      <div className="mt-2 text-xs text-primary flex items-center gap-1">
-                        <MapPin size={12} />
-                        City selected: {dropCity.name}
-                      </div>
-                    )}
                   </div>
                   
-                  {/* Drop City Suggestions */}
-                  {showDropSuggestions && dropSuggestions.length > 0 && !dropCity && (
+                  {/* Drop Suggestions */}
+                  {showDropSuggestions && dropSuggestions.length > 0 && (
                     <div className="absolute z-10 mt-1 w-full bg-card border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {dropSuggestions.map((place) => (
                         <div
                           key={place.id}
-                          onClick={() => handleDropCitySelect(place)}
+                          onClick={() => handleDropSelect(place)}
                           className="px-4 py-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
                         >
                           <div className="font-medium text-foreground">{place.displayName.text}</div>
@@ -767,70 +594,37 @@ const OfferRide1: React.FC = () => {
                     </div>
                   )}
                 </div>
-
-                {/* Exact Drop Location (shown after city selection) */}
-                {dropCity && (
-                  <div className="relative" ref={exactDropRef}>
-                    <div className="bg-card rounded-xl p-4 border border-border">
-                      <div className="flex items-center gap-3">
-                        <Send className="text-red-500 rotate-45" size={18} />
-                        <input
-                          value={dropExactLocation}
-                          onChange={async (e) => {
-                            setDropExactLocation(e.target.value);
-                            if (e.target.value.length >= 2 && dropCity.location) {
-                              const results = await searchExactLocation(e.target.value, {
-                                lat: dropCity.location.latitude || dropCity.location.lat || 0,
-                                lng: dropCity.location.longitude || dropCity.location.lng || 0
-                              });
-                              setDropSuggestions(results);
-                              setShowExactDropSearch(true);
-                            }
-                          }}
-                          onFocus={() => {
-                            if (dropCity.location) {
-                              setShowExactDropSearch(true);
-                            }
-                          }}
-                          placeholder={`Enter exact location in ${dropCity.name}`}
-                          className="w-full font-semibold outline-none bg-transparent placeholder:text-muted-foreground"
-                        />
-                        <button
-                          onClick={() => {
-                            setDropExactLocation('');
-                            setSelectedDrop(null);
-                          }}
-                          className="p-1 hover:bg-muted rounded-full"
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Select area, landmark, street, or junction
-                      </div>
-                    </div>
-                    
-                    {/* Exact Location Suggestions */}
-                    {showExactDropSearch && dropSuggestions.length > 0 && (
-                      <div className="absolute z-10 mt-1 w-full bg-card border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                        {dropSuggestions.map((place) => (
-                          <div
-                            key={place.id}
-                            onClick={() => handleExactDropSelect(place)}
-                            className="px-4 py-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
-                          >
-                            <div className="font-medium text-foreground">{place.displayName.text}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {place.formattedAddress}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
+
+            {/* Distance Display */}
+            {distance !== null && (
+              <div className={`bg-card rounded-xl p-4 border ${distanceError ? 'border-red-500' : 'border-green-500'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full ${distanceError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'} flex items-center justify-center`}>
+                      {distanceError ? (
+                        <AlertCircle size={16} />
+                      ) : (
+                        <Navigation size={16} />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium text-foreground">Distance</p>
+                      <p className={`text-sm ${distanceError ? 'text-red-600' : 'text-green-600'}`}>
+                        {distance.toFixed(1)} km
+                        {distanceError && ` - ${distanceError}`}
+                      </p>
+                    </div>
+                  </div>
+                  {!distanceError && (
+                    <div className="text-xs bg-green-100 text-green-800 px-3 py-1 rounded-full">
+                      ✓ Valid for offer
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* DATE & TIME - Single row */}
             <div className="bg-card rounded-xl p-4 border border-border grid md:grid-cols-2 gap-4">
@@ -840,6 +634,7 @@ const OfferRide1: React.FC = () => {
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
                   className="w-full font-semibold outline-none bg-transparent"
                 />
               </div>
@@ -936,9 +731,9 @@ const OfferRide1: React.FC = () => {
           <div className="fixed bottom-6 right-6 z-10">
             <button
               onClick={handleContinue}
-              disabled={!selectedPickup || !selectedDrop || loadingSettings || !!error}
+              disabled={!selectedPickup || !selectedDrop || loadingSettings || !!error || !!distanceError}
               className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all ${
-                selectedPickup && selectedDrop && !loadingSettings && !error
+                selectedPickup && selectedDrop && !loadingSettings && !error && !distanceError
                   ? 'bg-primary text-primary-foreground hover:bg-primary/90 hover:scale-105'
                   : 'bg-muted text-muted-foreground cursor-not-allowed'
               }`}
