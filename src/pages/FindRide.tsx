@@ -185,7 +185,7 @@ const FindRide = () => {
   };
 
   const handleModifySearch = () => {
-    navigate('/search', { 
+    navigate('/', { 
       state: { 
         from: searchInfo.from, 
         to: searchInfo.to,
@@ -220,7 +220,7 @@ const FindRide = () => {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate('/')}
               className="text-foreground hover:text-muted-foreground transition-colors p-1"
             >
               <ChevronLeft className="w-6 h-6" />
