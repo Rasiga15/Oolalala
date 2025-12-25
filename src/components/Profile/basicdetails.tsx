@@ -109,6 +109,8 @@ const BasicDetails = () => {
   const [cameraAccessing, setCameraAccessing] = useState(false);
   const [showCameraPreview, setShowCameraPreview] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [isProfileImageUploaded, setIsProfileImageUploaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -252,6 +254,9 @@ const BasicDetails = () => {
             imageUrl = `https://api-dev.oolalala.com${imageUrl}`;
           }
           setProfileImage(imageUrl);
+          setIsProfileImageUploaded(true); // User already has a profile image
+        } else {
+          setIsProfileImageUploaded(false); // No profile image
         }
         
         toast.success("Profile loaded successfully");
@@ -273,6 +278,14 @@ const BasicDetails = () => {
             professionalType: "",
             multiVehicle: false,
           });
+          
+          // Check if user already has profile image
+          if (user.profile_image) {
+            setProfileImage(user.profile_image);
+            setIsProfileImageUploaded(true);
+          } else {
+            setIsProfileImageUploaded(false);
+          }
         }
       }
     } catch (error) {
@@ -365,8 +378,11 @@ const BasicDetails = () => {
   };
 
   // Handle camera capture
-  const handleCameraCapture = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const handleCameraCapture = async () => {
+    if (!videoRef.current || !canvasRef.current) {
+      toast.error('Camera not ready');
+      return;
+    }
 
     try {
       const video = videoRef.current;
@@ -383,25 +399,38 @@ const BasicDetails = () => {
         // Convert canvas to Blob with compression
         canvas.toBlob(async (blob) => {
           if (blob) {
-            // Compress the image
-            const compressedBlob = await compressImageToUnder2MB(blob);
-            
-            const file = new File([compressedBlob], `profile-photo-${Date.now()}.jpg`, { 
-              type: 'image/jpeg',
-              lastModified: Date.now()
-            });
-            
-            console.log('Captured image size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
-            
-            // Check if image is under 2MB
-            if (file.size > 2 * 1024 * 1024) {
-              toast.error('Image is still too large. Please try again with better lighting.');
+            try {
+              setImageUploading(true);
+              // Compress the image
+              const compressedBlob = await compressImageToUnder2MB(blob);
+              
+              const file = new File([compressedBlob], `profile-photo-${Date.now()}.jpg`, { 
+                type: 'image/jpeg',
+                lastModified: Date.now()
+              });
+              
+              console.log('Captured image size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+              
+              // Check if image is under 2MB
+              if (file.size > 2 * 1024 * 1024) {
+                toast.error('Image is still too large. Please try again with better lighting.');
+                stopCameraStream();
+                setImageUploading(false);
+                return;
+              }
+              
               stopCameraStream();
-              return;
+              await uploadProfileImage(file);
+            } catch (error) {
+              console.error('Error processing photo:', error);
+              toast.error('Failed to process photo');
+            } finally {
+              setImageUploading(false);
             }
-            
+          } else {
+            toast.error('Failed to capture photo');
             stopCameraStream();
-            await uploadProfileImage(file);
+            setImageUploading(false);
           }
         }, 'image/jpeg', 0.7); // Start with 0.7 quality
       }
@@ -409,6 +438,7 @@ const BasicDetails = () => {
       console.error('Error capturing photo:', error);
       toast.error('Failed to capture photo');
       stopCameraStream();
+      setImageUploading(false);
     }
   };
 
@@ -416,16 +446,19 @@ const BasicDetails = () => {
   const uploadProfileImage = async (file: File) => {
     try {
       setLoading(true);
+      setImageUploading(true);
       
       // Validate image
       const validImageTypes = ['image/jpeg', 'image/jpg'];
       if (!validImageTypes.includes(file.type)) {
         toast.error('Only JPEG images are allowed');
+        setImageUploading(false);
         return;
       }
       
       if (file.size > 2 * 1024 * 1024) { // 2MB
         toast.error('Image size should be less than 2MB');
+        setImageUploading(false);
         return;
       }
       
@@ -439,50 +472,60 @@ const BasicDetails = () => {
       reader.readAsDataURL(file);
       
       // Create FormData with all required fields
-      const formData = new FormData();
-      formData.append('profile_image', file);
+      const uploadFormData = new FormData();
+      uploadFormData.append('profile_image', file);
       
-      // Always append basic required fields
-      const firstName = formData.firstName || user?.first_name || '';
-      const lastName = formData.lastName || user?.last_name || '';
-      const dateOfBirth = formData.dateOfBirth || user?.date_of_birth || '';
-      const gender = formData.gender || user?.gender || 'male';
-      const multiVehicle = formData.multiVehicle || false;
-      
-      formData.append('firstName', firstName);
-      formData.append('lastName', lastName);
-      formData.append('dateOfBirth', dateOfBirth);
-      formData.append('gender', gender);
-      formData.append('multiVehicle', multiVehicle.toString());
+      // Always append basic required fields from current formData state
+      uploadFormData.append('firstName', formData.firstName || '');
+      uploadFormData.append('lastName', formData.lastName || '');
+      uploadFormData.append('dateOfBirth', formData.dateOfBirth || '');
+      uploadFormData.append('gender', formData.gender);
+      uploadFormData.append('multiVehicle', formData.multiVehicle.toString());
       
       // Append optional fields if they exist
       if (formData.location) {
-        formData.append('location', formData.location);
+        uploadFormData.append('location', formData.location);
       }
       
       if (formData.publishRide !== undefined) {
-        formData.append('publishRide', formData.publishRide.toString());
+        uploadFormData.append('publishRide', formData.publishRide.toString());
       }
       
       if (formData.partnerType) {
-        formData.append('partnerType', formData.partnerType);
+        uploadFormData.append('partnerType', formData.partnerType);
       }
       
       if (formData.businessName) {
-        formData.append('businessName', formData.businessName);
+        uploadFormData.append('businessName', formData.businessName);
+      }
+      
+      if (formData.professionalType) {
+        uploadFormData.append('professionalType', formData.professionalType);
       }
       
       // Log FormData for debugging
       console.log('Sending FormData with keys:');
-      for (let [key, value] of formData.entries()) {
+      for (let [key, value] of uploadFormData.entries()) {
         console.log(`${key}:`, value);
       }
       
       // Call API
-      const result = await ProfileApiService.updateBasicProfile(formData);
+      const result = await ProfileApiService.updateBasicProfile(uploadFormData);
       
       if (result.success) {
+        setIsProfileImageUploaded(true); // Mark as uploaded
         toast.success('Profile picture updated successfully!');
+        
+        // Update user in auth context if needed
+        const userUpdateData: any = {
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          gender: formData.gender,
+          date_of_birth: formData.dateOfBirth,
+          profile_image: reader.result as string,
+        };
+        
+        updateUser(userUpdateData);
       } else {
         toast.error(result.error || 'Failed to update profile picture');
       }
@@ -491,11 +534,14 @@ const BasicDetails = () => {
       toast.error('An error occurred while uploading image');
     } finally {
       setLoading(false);
+      setImageUploading(false);
     }
   };
 
   // Handle camera click
   const handleCameraClick = async () => {
+    if (loading || cameraAccessing || imageUploading) return;
+    
     try {
       setCameraAccessing(true);
       
@@ -589,6 +635,13 @@ const BasicDetails = () => {
   };
 
   const handleSave = async () => {
+    // NEW: Check if profile image is uploaded
+    if (!isProfileImageUploaded) {
+      toast.error('Please upload your profile image before saving');
+      toast.info('Click the camera icon to take a profile photo');
+      return;
+    }
+
     if (!formData.firstName || !formData.lastName) {
       toast.error("Please fill in all required fields");
       return;
@@ -615,8 +668,6 @@ const BasicDetails = () => {
       return;
     }
 
-    // REMOVED: Validation for professional type when individual partner
-
     try {
       setLoading(true);
       console.log("Saving profile data:", formData);
@@ -632,7 +683,7 @@ const BasicDetails = () => {
         partnerType: formData.partnerType,
         businessName: formData.businessName,
         location: formData.location,
-        professionalType: formData.professionalType, // Still include but optional now
+        professionalType: formData.professionalType,
       });
       
       console.log("FormData keys:", Array.from(formDataObj.keys()));
@@ -718,7 +769,7 @@ const BasicDetails = () => {
         <button 
           onClick={() => navigate(-1)} 
           className="absolute left-4 p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={loading}
+          disabled={loading || imageUploading || cameraAccessing}
         >
           <FiChevronLeft size={24} className="text-foreground" />
         </button>
@@ -768,17 +819,36 @@ const BasicDetails = () => {
               <button
                 onClick={handleCameraClick}
                 className="absolute bottom-0 right-0 w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center shadow-lg hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={loading || cameraAccessing}
+                disabled={loading || cameraAccessing || imageUploading}
                 title="Take photo with camera"
               >
-                {loading || cameraAccessing ? (
+                {loading || cameraAccessing || imageUploading ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                 ) : (
                   <FiCamera size={20} />
                 )}
               </button>
+              
+              {/* NEW: Profile Image Required Indicator */}
+              {!isProfileImageUploaded && (
+                <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                  Required
+                </div>
+              )}
             </div>
           </div>
+
+          {/* NEW: Profile Image Upload Warning */}
+          {!isProfileImageUploaded && (
+            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-center">
+              <p className="text-yellow-700 font-medium">
+                ⚠️ Profile photo is required
+              </p>
+              <p className="text-yellow-600 text-sm mt-1">
+                Please upload your profile image before saving
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
             {/* Left Column */}
@@ -786,7 +856,7 @@ const BasicDetails = () => {
               {/* First Name */}
               <div className="space-y-2">
                 <Label htmlFor="firstName">
-                  First name
+                  First name <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="firstName"
@@ -794,14 +864,14 @@ const BasicDetails = () => {
                   value={formData.firstName}
                   onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                   className="h-12"
-                  disabled={loading}
+                  disabled={loading || imageUploading}
                 />
               </div>
 
               {/* Last Name */}
               <div className="space-y-2">
                 <Label htmlFor="lastName">
-                  Last name
+                  Last name <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="lastName"
@@ -809,7 +879,7 @@ const BasicDetails = () => {
                   value={formData.lastName}
                   onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                   className="h-12"
-                  disabled={loading}
+                  disabled={loading || imageUploading}
                 />
               </div>
 
@@ -818,12 +888,12 @@ const BasicDetails = () => {
                 {/* Date of Birth */}
                 <div className="space-y-2">
                   <Label htmlFor="dob">
-                    Date of birth
+                    Date of birth <span className="text-red-500">*</span>
                   </Label>
                   <div className="relative">
                     <div
-                      onClick={handleDatePicker}
-                      className={`w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer flex items-center justify-between h-12 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      onClick={() => !loading && !imageUploading && handleDatePicker()}
+                      className={`w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 flex items-center justify-between h-12 ${loading || imageUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
                       <span className={formData.dateOfBirth ? 'text-gray-800' : 'text-gray-400'}>
                         {formData.dateOfBirth ? formatDateForDisplay(formData.dateOfBirth) : "Select date"}
@@ -853,7 +923,7 @@ const BasicDetails = () => {
                       value={formData.location}
                       onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                       className="h-12"
-                      disabled={loading}
+                      disabled={loading || imageUploading}
                     />
                   </div>
                 )}
@@ -864,7 +934,7 @@ const BasicDetails = () => {
             <div className="space-y-6">
               {/* Gender */}
               <div className="space-y-3">
-                <Label>Gender</Label>
+                <Label>Gender <span className="text-red-500">*</span></Label>
                 <div className="flex gap-2 flex-wrap">
                   {genderOptions.map((option) => (
                     <button
@@ -876,7 +946,7 @@ const BasicDetails = () => {
                           ? "bg-primary text-white hover:bg-primary/90"
                           : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       }`}
-                      disabled={loading}
+                      disabled={loading || imageUploading}
                     >
                       {option.charAt(0).toUpperCase() + option.slice(1)}
                     </button>
@@ -915,7 +985,7 @@ const BasicDetails = () => {
                             ? "bg-primary text-white hover:bg-primary/90"
                             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                         }`}
-                        disabled={loading}
+                        disabled={loading || imageUploading}
                       >
                         Individual
                       </button>
@@ -927,7 +997,7 @@ const BasicDetails = () => {
                             ? "bg-primary text-white hover:bg-primary/90"
                             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                         }`}
-                        disabled={loading}
+                        disabled={loading || imageUploading}
                       >
                         Commercial
                       </button>
@@ -960,8 +1030,6 @@ const BasicDetails = () => {
                     </div>
                   </div>
 
-                  {/* REMOVED: Professional Type Input Field */}
-
                   {/* Business Name Field (Only for Commercial partners) */}
                   {formData.partnerType === "commercial" && (
                     <div className="space-y-2">
@@ -974,7 +1042,7 @@ const BasicDetails = () => {
                         value={formData.businessName}
                         onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
                         className="h-12"
-                        disabled={loading}
+                        disabled={loading || imageUploading}
                       />
                       <p className="text-xs text-gray-500">
                         Required for commercial partners
@@ -993,18 +1061,27 @@ const BasicDetails = () => {
               variant="default"
               size="default"
               className="px-8 py-3 rounded-full"
-              disabled={loading || !formData.firstName || !formData.lastName}
+              disabled={loading || imageUploading || !formData.firstName || !formData.lastName || !isProfileImageUploaded}
             >
-              {loading ? (
+              {loading || imageUploading ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Saving...
+                  {imageUploading ? 'Uploading...' : 'Saving...'}
                 </>
               ) : (
                 "Save details"
               )}
             </Button>
           </div>
+          
+          {/* NEW: Save Button Warning */}
+          {!isProfileImageUploaded && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm text-center">
+                ❌ Please upload your profile image to enable save button
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1027,6 +1104,7 @@ const BasicDetails = () => {
                   min={calculateMinDate()}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
                   autoFocus
+                  disabled={loading || imageUploading}
                 />
                 
                 {formData.dateOfBirth && (
@@ -1046,6 +1124,7 @@ const BasicDetails = () => {
                   type="button"
                   onClick={() => setShowDatePickerModal(false)}
                   className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                  disabled={loading || imageUploading}
                 >
                   Cancel
                 </button>
@@ -1064,6 +1143,7 @@ const BasicDetails = () => {
                     }
                   }}
                   className="flex-1 px-4 py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                  disabled={loading || imageUploading}
                 >
                   Confirm
                 </button>
@@ -1080,7 +1160,7 @@ const BasicDetails = () => {
             <button
               onClick={stopCameraStream}
               className="bg-white p-2 rounded-full hover:bg-gray-100 transition"
-              disabled={loading}
+              disabled={loading || imageUploading}
             >
               <FiChevronLeft size={24} />
             </button>
@@ -1109,7 +1189,7 @@ const BasicDetails = () => {
             <div className="absolute bottom-8 left-0 right-0 flex justify-center">
               <button
                 onClick={handleCameraCapture}
-                disabled={loading}
+                disabled={loading || imageUploading}
                 className="w-16 h-16 bg-white rounded-full border-4 border-gray-300 hover:border-gray-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="w-12 h-12 bg-white rounded-full m-auto"></div>

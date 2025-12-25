@@ -96,14 +96,6 @@ export const Navbar: React.FC = () => {
 
         {/* CENTER - NAV LINKS */}
         <div className="hidden md:flex items-center gap-12">
-          {/* <button 
-            onClick={() => navigate('/find-ride')}
-            className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
-          >
-            <FiSearch size={20} />
-            <span>Find Ride</span>
-          </button> */}
-
           <button 
             onClick={() => navigate('/offer-ride1')}
             className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
@@ -117,7 +109,7 @@ export const Navbar: React.FC = () => {
             className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
           >
             <MdOutlineCommute size={22} />
-            <span>My Rides</span>
+            <span>My Offers</span>
           </button>
           
           {/* WALLET LINK - Desktop */}
@@ -138,9 +130,7 @@ export const Navbar: React.FC = () => {
                 <p className="text-sm font-semibold text-gray-800">
                   {getUserDisplayName()}
                 </p>
-                <p className="text-xs text-gray-500 capitalize">
-                  {user.role === 'both' ? 'Rider & Partner' : user.role}
-                </p>
+              
               </div>
               
               {/* User profile icon with dropdown */}
@@ -267,16 +257,6 @@ export const Navbar: React.FC = () => {
           
           <button 
             onClick={() => {
-              navigate('/find-ride');
-              setMobileMenuOpen(false);
-            }}
-            className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
-          >
-            <FiSearch size={20} /> Find Ride
-          </button>
-          
-          <button 
-            onClick={() => {
               navigate('/offer-ride1');
               setMobileMenuOpen(false);
             }}
@@ -292,7 +272,7 @@ export const Navbar: React.FC = () => {
             }}
             className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
           >
-            <MdOutlineCommute size={22} /> My Rides
+            <MdOutlineCommute size={22} /> My Offers
           </button>
           
           {/* WALLET LINK - Mobile */}

@@ -1,610 +1,380 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Clock, MapPin, Users, DollarSign, Car } from 'lucide-react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import axios from 'axios';
-import { BASE_URL } from '@/config/api';
-import Navbar from '../components/layout/Navbar';
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { ChevronLeft, Loader2, MapPin, Clock, Users, Car, Calendar, Navigation } from "lucide-react";
+import RideCard from "@/components/Findride/RideCard";
+import ConfirmRequestPanel from "@/components/Findride/ConfirmRequestPanel";
+import { useToast } from "@/hooks/use-toast";
+import { searchRides, bookRide, Ride, BookingRequestPayload } from "@/services/finderideapi";
+import { useAuth } from "@/contexts/AuthContext";
 
-interface RideStop {
-  stop_id: number;
-  ride_id: number;
-  stop_order: number;
-  stop_name: string;
-  address: string;
-  arrival_datetime: string | null;
-  departure_datetime: string | null;
-  latitude: number;
-  longitude: number;
-  created_at: string;
-}
-
-interface Ride {
-  ride_id: number;
-  ride_code: string | null;
-  start_address: string;
-  end_address: string;
-  travel_datetime: string;
-  total_seats: number;
-  available_seats: number;
-  base_fare: string | null;
-  total_distance: number | null;
-  total_duration: number | null;
-  stops: RideStop[];
-  total_fare?: string;
-  departure_time?: string;
-  partner?: {
-    user?: {
-      first_name: string;
-      last_name: string;
-      profile_image_url: string;
-    };
-  };
-  search_context?: {
-    total_fare: string;
-    departure_time: string;
-  };
-  vehicle?: {
-    vehicle_type: string;
-    model: string | null;
-    brand: string | null;
-  };
-}
-
-interface SearchResults {
-  totalItems: number;
-  totalPages: number;
-  currentPage: number;
-  rides: Ride[];
-}
-
-const FindRideStep2: React.FC = () => {
-  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [estimatedDurations, setEstimatedDurations] = useState<{[key: number]: string}>({});
-  const [priceOffers, setPriceOffers] = useState<{[key: number]: string}>({});
-  
+const FindRide = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { toast } = useToast();
+  const { user } = useAuth();
+  
+  const [selectedRide, setSelectedRide] = useState<Ride | null>(null);
+  const [showPanel, setShowPanel] = useState(false);
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchInfo, setSearchInfo] = useState({
+    from: "Tenkasi",
+    to: "Chennai",
+    date: ""
+  });
 
-  const getAuthToken = (): string => {
-    return user?.token || localStorage.getItem('token') || '';
-  };
-
-  const validateToken = async (): Promise<boolean> => {
-    const token = getAuthToken();
-    if (!token) return false;
-
-    try {
-      const response = await axios.get(`${BASE_URL}/api/auth/verify-token`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'accept': 'application/json'
-        }
-      });
-      return response.data.valid === true;
-    } catch (error) {
-      console.error('Token validation failed:', error);
-      return false;
-    }
-  };
-
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  };
-
-  const estimateTravelTime = (distance: number, vehicleType?: string): string => {
-    let averageSpeed = 60;
-    if (vehicleType === 'car') averageSpeed = 65;
-    else if (vehicleType === 'bike' || vehicleType === 'motorcycle') averageSpeed = 50;
-    else if (vehicleType === 'auto') averageSpeed = 40;
-    else if (vehicleType === 'suv') averageSpeed = 60;
+  // Get search params from location state or URL
+  useEffect(() => {
+    console.log('📱 FindRide component mounted');
+    console.log('📍 Location state:', location.state);
+    console.log('🔍 Location search:', location.search);
     
-    const hours = distance / averageSpeed;
-    const totalHours = hours * 1.2;
-    const hoursInt = Math.floor(totalHours);
-    const minutes = Math.round((totalHours - hoursInt) * 60);
+    const params = new URLSearchParams(location.search);
     
-    if (hoursInt > 0 && minutes > 0) return `${hoursInt}h ${minutes}m`;
-    else if (hoursInt > 0) return `${hoursInt}h`;
-    else return `${minutes}m`;
-  };
-
-  const calculateRideDuration = (ride: Ride): string => {
-    if (ride.total_duration) {
-      const hours = Math.floor(ride.total_duration / 60);
-      const minutes = ride.total_duration % 60;
-      if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
-      else if (hours > 0) return `${hours}h`;
-      else return `${minutes}m`;
+    // Set default values or get from location
+    const from = location.state?.from || params.get('from') || 'Tenkasi';
+    const to = location.state?.to || params.get('to') || 'Chennai';
+    
+    // Get date - required by API
+    let date = location.state?.date || params.get('date');
+    if (!date) {
+      // If no date provided, use tomorrow's date as default
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      date = tomorrow.toISOString().split('T')[0];
     }
     
-    if (ride.total_distance) return estimateTravelTime(ride.total_distance, ride.vehicle?.vehicle_type);
+    console.log('🔎 Search params:', { from, to, date });
     
-    if (ride.stops && ride.stops.length >= 2) {
-      let totalDistance = 0;
-      const sortedStops = [...ride.stops].sort((a, b) => a.stop_order - b.stop_order);
-      for (let i = 0; i < sortedStops.length - 1; i++) {
-        const stop1 = sortedStops[i];
-        const stop2 = sortedStops[i + 1];
-        const distance = calculateDistance(stop1.latitude, stop1.longitude, stop2.latitude, stop2.longitude);
-        totalDistance += distance;
-      }
-      return estimateTravelTime(totalDistance, ride.vehicle?.vehicle_type);
-    }
+    setSearchInfo({ from, to, date });
     
-    if (ride.stops && ride.stops.length >= 2) {
-      const firstStop = ride.stops.find(s => s.stop_order === 1);
-      const lastStop = ride.stops.find(s => s.stop_order === ride.stops.length);
-      if (firstStop && lastStop) {
-        const distance = calculateDistance(firstStop.latitude, firstStop.longitude, lastStop.latitude, lastStop.longitude);
-        return estimateTravelTime(distance, ride.vehicle?.vehicle_type);
-      }
-    }
-    
-    return '3h 00m';
-  };
+    // Start fetching rides
+    fetchRides(date);
+  }, [location]);
 
-  const fetchSearchResults = async () => {
+  const fetchRides = async (date: string) => {
     try {
       setLoading(true);
-      setError(null);
+      setRides([]); // Clear previous rides
       
-      if (!isAuthenticated) {
-        setError('Please login to view rides');
-        setTimeout(() => navigate('/login'), 2000);
-        return;
-      }
-
-      const isValidToken = await validateToken();
-      if (!isValidToken) {
-        setError('Your session has expired. Please login again.');
-        logout();
-        setTimeout(() => navigate('/login'), 2000);
-        return;
-      }
-
-      const searchParams = location.state?.searchParams || 
-                          JSON.parse(localStorage.getItem('searchParams') || '{}');
-      const token = getAuthToken();
+      console.log('🚀 Fetching rides for date:', date);
       
-      if (!token) {
-        setError('Authentication token not found');
-        navigate('/login');
-        return;
-      }
-
-      const response = await axios.get(`${BASE_URL}/api/rides/search`, {
-        params: searchParams,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'accept': 'application/json'
-        },
-        timeout: 10000
-      });
-
-      if (response.data && response.data.rides) {
-        setSearchResults(response.data);
-        const durations: {[key: number]: string} = {};
-        response.data.rides.forEach((ride: Ride) => {
-          durations[ride.ride_id] = calculateRideDuration(ride);
-        });
-        setEstimatedDurations(durations);
-        localStorage.setItem('searchResults', JSON.stringify(response.data));
-      } else {
-        setError('No rides found for your search criteria.');
-      }
-    } catch (err: any) {
-      console.error('Error fetching search results:', err);
-      if (err.response) {
-        if (err.response.status === 401) {
-          setError('Your session has expired. Please login again.');
-          logout();
-          setTimeout(() => navigate('/login'), 2000);
-        } else if (err.response.status === 400) {
-          setError('Invalid search parameters. Please try again.');
-        } else if (err.response.status === 404) {
-          setError('No rides found for your search criteria.');
+      // Call the search API
+      const result = await searchRides(date);
+      console.log('📊 Search result:', result);
+      
+      if (result.success && result.data) {
+        const ridesData = result.data.rides || [];
+        console.log('🎯 Rides data received:', ridesData);
+        setRides(ridesData);
+        
+        // Show toast notification
+        if (ridesData.length > 0) {
+          toast({
+            title: "✅ Rides Found!",
+            description: `Found ${ridesData.length} ride${ridesData.length === 1 ? '' : 's'} available`,
+          });
         } else {
-          setError(`Server error: ${err.response.status}`);
+          toast({
+            title: "ℹ️ No Rides Found",
+            description: "No rides available for the selected date",
+          });
         }
-      } else if (err.request) {
-        setError('Network error. Please check your internet connection.');
       } else {
-        setError('Failed to load rides. Please try again.');
+        console.error('❌ Search failed:', result.message);
+        toast({
+          title: "❌ Search Failed",
+          description: result.message || "Could not fetch rides. Please try again.",
+          variant: "destructive",
+        });
       }
+    } catch (error) {
+      console.error('💥 Fetch error:', error);
+      toast({
+        title: "⚠️ Network Error",
+        description: "Please check your internet connection and try again",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setError('Please login to view rides');
-      setTimeout(() => navigate('/login'), 1500);
+  const handleRequest = (ride: Ride) => {
+    console.log('👉 Requesting ride ID:', ride.ride_id);
+    
+    if (!user) {
+      toast({
+        title: "🔐 Login Required",
+        description: "Please login to book a ride",
+        variant: "destructive",
+      });
+      navigate('/login');
       return;
     }
+    
+    setSelectedRide(ride);
+    setShowPanel(true);
+  };
 
-    const results = location.state?.searchResults || JSON.parse(localStorage.getItem('searchResults') || 'null');
-    if (results) {
-      setSearchResults(results);
-      const durations: {[key: number]: string} = {};
-      results.rides.forEach((ride: Ride) => {
-        durations[ride.ride_id] = calculateRideDuration(ride);
+  const handleConfirm = async (option: string, remarks: string) => {
+    if (!selectedRide || !user) return;
+
+    try {
+      console.log('✅ Confirming booking for ride:', selectedRide.ride_id);
+      
+      const payload: BookingRequestPayload = {
+        seats_booked: 1,
+        boarding_stop_id: selectedRide.searched_segment.boarding_stop_id,
+        drop_stop_id: selectedRide.searched_segment.drop_stop_id,
+        negotiated_fare: parseFloat(selectedRide.searched_segment.price),
+        remarks: remarks || "Requesting ride"
+      };
+
+      console.log('📦 Booking payload:', payload);
+      
+      // Call the bookRide API
+      const result = await bookRide(selectedRide.ride_id, payload);
+      
+      if (result.success && result.data) {
+        const bookingData = result.data.booking;
+        
+        toast({
+          title: "✅ Request Sent Successfully!",
+          description: result.data.message || "Your ride request has been sent",
+        });
+        
+        toast({
+          title: "📋 Booking Details",
+          description: `Booking Number: ${bookingData.booking_number}`,
+        });
+        
+        console.log('🎉 Booking successful:', bookingData);
+        
+        // Optionally navigate to bookings page or show booking confirmation
+        // navigate(`/bookings/${bookingData.id}`);
+        
+      } else {
+        toast({
+          title: "❌ Booking Failed",
+          description: result.message || "Failed to book ride. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('💥 Booking error:', error);
+      toast({
+        title: "⚠️ Error",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
       });
-      setEstimatedDurations(durations);
-      setLoading(false);
-    } else {
-      fetchSearchResults();
+    } finally {
+      setShowPanel(false);
+      setSelectedRide(null);
     }
-  }, [location, isAuthenticated]);
+  };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short'
+  const handleClose = () => {
+    setShowPanel(false);
+    setSelectedRide(null);
+  };
+
+  const handleRetrySearch = () => {
+    console.log('🔄 Retrying search...');
+    fetchRides(searchInfo.date);
+  };
+
+  const handleModifySearch = () => {
+    navigate('/search', { 
+      state: { 
+        from: searchInfo.from, 
+        to: searchInfo.to,
+        date: searchInfo.date
+      } 
     });
   };
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString('en-IN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    }).toLowerCase();
-  };
-
-  const calculateArrivalTime = (ride: Ride): string => {
-    const departureTime = ride.search_context?.departure_time || ride.travel_datetime;
-    const departure = new Date(departureTime);
-    const durationText = estimatedDurations[ride.ride_id] || calculateRideDuration(ride);
-    let hours = 0;
-    let minutes = 0;
-    const hourMatch = durationText.match(/(\d+)h/);
-    const minuteMatch = durationText.match(/(\d+)m/);
-    if (hourMatch) hours = parseInt(hourMatch[1]);
-    if (minuteMatch) minutes = parseInt(minuteMatch[1]);
-    const arrival = new Date(departure.getTime() + (hours * 60 + minutes) * 60000);
-    return formatTime(arrival.toISOString());
-  };
-
-  const handlePriceOfferChange = (rideId: number, value: string) => {
-    setPriceOffers(prev => ({
-      ...prev,
-      [rideId]: value
-    }));
-  };
-
-  const handlePriceOffer = async (rideId: number) => {
-    const price = priceOffers[rideId];
-    if (!price || parseFloat(price) <= 0) {
-      setError('Please enter a valid price amount');
-      return;
-    }
-
+  const formatDisplayDate = (dateStr: string) => {
     try {
-      if (!isAuthenticated) {
-        setError('Please login to make an offer');
-        navigate('/login');
-        return;
-      }
-
-      const token = getAuthToken();
-      if (!token) {
-        setError('Authentication token not found');
-        navigate('/login');
-        return;
-      }
-
-      const response = await axios.post(
-        `${BASE_URL}/api/rides/${rideId}/offer`,
-        { offer_price: parseFloat(price) },
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'accept': 'application/json'
-          }
-        }
-      );
-
-      if (response.data.success) {
-        alert(`Your offer of ₹${price} has been submitted successfully!`);
-        setPriceOffers(prev => ({
-          ...prev,
-          [rideId]: ''
-        }));
-      }
-    } catch (err: any) {
-      console.error('Error submitting offer:', err);
-      if (err.response?.status === 401) {
-        setError('Your session has expired. Please login again.');
-        logout();
-        setTimeout(() => navigate('/login'), 2000);
-      } else {
-        setError('Failed to submit offer. Please try again.');
-      }
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-IN', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      });
+    } catch (e) {
+      return dateStr;
     }
   };
 
-  const handleBookNow = async (ride: Ride) => {
-    try {
-      if (!isAuthenticated) {
-        setError('Please login to book a ride');
-        navigate('/login');
-        return;
-      }
-
-      const token = getAuthToken();
-      if (!token) {
-        setError('Authentication token not found');
-        navigate('/login');
-        return;
-      }
-
-      localStorage.setItem('selectedRide', JSON.stringify(ride));
-      localStorage.setItem('estimatedDuration', estimatedDurations[ride.ride_id] || calculateRideDuration(ride));
-      navigate('/find-ride3', { state: { ride } });
-    } catch (error) {
-      console.error('Error preparing booking:', error);
-      setError('Failed to process booking. Please try again.');
-    }
-  };
-
-  const handleRefreshResults = () => {
-    fetchSearchResults();
-  };
-
-  if (loading) {
-    return (
-      <>
-        <Navbar />
-        <div className="min-h-screen bg-white flex items-center justify-center pt-16">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#21409A] mx-auto"></div>
-            <p className="mt-4 text-gray-600 font-medium">Loading rides...</p>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  if (error) {
-    return (
-      <>
-        <Navbar />
-        <div className="min-h-screen bg-white flex items-center justify-center px-4 pt-16">
-          <div className="text-center max-w-md">
-            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <div className="text-red-600 font-bold text-xl">!</div>
-            </div>
-            <p className="text-gray-800 text-lg font-semibold mb-2">{error}</p>
-            <div className="mt-6 space-y-3">
-              <button 
-                onClick={() => navigate('/')}
-                className="bg-[#21409A] text-white px-6 py-3 rounded-lg text-sm font-semibold hover:bg-[#1a347d] transition-colors w-full"
-              >
-                ← Back to Home
-              </button>
-              {error.includes('login') && (
-                <button 
-                  onClick={() => navigate('/login')}
-                  className="bg-white text-[#21409A] border border-[#21409A] px-6 py-3 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors w-full"
-                >
-                  Go to Login
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
+  // Debug: Log rides state changes
+  useEffect(() => {
+    console.log('🔄 Rides state updated:', rides);
+  }, [rides]);
 
   return (
-    <>
-      <Navbar />
-      <div className="min-h-screen bg-gray-50 px-4 sm:px-6 py-6 pt-16">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => navigate('/')} 
-              className="flex items-center hover:opacity-80 transition-opacity"
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="bg-card border-b border-border px-4 py-4 sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate(-1)}
+              className="text-foreground hover:text-muted-foreground transition-colors p-1"
             >
-              <ArrowLeft size={20} className="text-gray-700" />
+              <ChevronLeft className="w-6 h-6" />
             </button>
             <div>
-              <h1 className="text-lg font-semibold text-gray-900">
-                {searchResults?.rides[0]?.start_address || 'From'} → {searchResults?.rides[0]?.end_address || 'To'}
-              </h1>
-              <p className="text-sm text-gray-500 mt-1">
-                {searchResults?.totalItems || 0} {searchResults?.totalItems === 1 ? 'ride' : 'rides'} available
-              </p>
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-primary" />
+                <h1 className="text-foreground font-medium text-lg">
+                  {searchInfo.from} → {searchInfo.to}
+                </h1>
+              </div>
+              <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                <Calendar className="w-3 h-3" />
+                <span>{formatDisplayDate(searchInfo.date)}</span>
+              </div>
             </div>
           </div>
-          {/* <button
-            onClick={handleRefreshResults}
-            className="text-[#21409A] hover:text-[#1a347d] font-medium text-sm"
-          >
-            Refresh Results
-          </button> */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleModifySearch}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-lg hover:bg-accent"
+            >
+              Modify
+            </button>
+            <button
+              onClick={handleRetrySearch}
+              disabled={loading}
+              className="bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-primary-foreground px-4 py-2 rounded-full text-sm font-medium transition-colors flex items-center gap-2"
+            >
+              {loading ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Navigation className="w-3 h-3" />
+              )}
+              Refresh
+            </button>
+          </div>
         </div>
+      </header>
 
-        {/* Main Ride List */}
-        <div className="max-w-4xl mx-auto">
-          {searchResults?.rides && searchResults.rides.length > 0 ? (
-            <div className="space-y-4">
-              {searchResults.rides.map((ride) => {
-                const fare = ride.search_context?.total_fare || ride.base_fare || '0';
-                const departureTime = ride.search_context?.departure_time || ride.travel_datetime;
-                const duration = estimatedDurations[ride.ride_id] || calculateRideDuration(ride);
-                const arrivalTime = calculateArrivalTime(ride);
-                
-                return (
-                  <div key={ride.ride_id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-5 hover:shadow-md transition-shadow">
-                    {/* Ride Header */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <MapPin size={16} className="text-gray-500" />
-                          <h2 className="font-semibold text-gray-900">
-                            {ride.start_address} → {ride.end_address}
-                          </h2>
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {formatDate(departureTime)} • {formatTime(departureTime)} - {arrivalTime}
-                        </div>
-                      </div>
-                      <div className="mt-2 sm:mt-0">
-                        <div className="text-2xl font-bold text-[#21409A]">
-                          ₹{parseInt(fare).toLocaleString('en-IN')}
-                        </div>
-                        <div className="text-sm text-gray-500 text-right">per seat</div>
-                      </div>
-                    </div>
-
-                    {/* Time Line */}
-                    <div className="mb-4">
-                      <div className="flex items-center justify-between text-sm text-gray-600">
-                        <div className="text-left">
-                          <div className="font-medium">{formatTime(departureTime)}</div>
-                          <div className="text-xs text-gray-500">Departure</div>
-                        </div>
-                        <div className="flex-1 mx-4 relative">
-                          <div className="h-[2px] bg-gray-300"></div>
-                          <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                            <div className="bg-white border border-[#21409A] rounded-full px-3 py-1 text-xs font-medium">
-                              {duration}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-medium">{arrivalTime}</div>
-                          <div className="text-xs text-gray-500">Arrival</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Vehicle and Seats */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-                          <Car size={18} className="text-[#21409A]" />
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900">
-                            {ride.vehicle?.brand || 'Vehicle'} {ride.vehicle?.model || ''}
-                          </div>
-                          <div className="text-sm text-gray-500 capitalize">
-                            {ride.vehicle?.vehicle_type || 'Standard'}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Users size={16} className="text-gray-500" />
-                        <span className="text-sm text-gray-700">
-                          {ride.available_seats} of {ride.total_seats} seats left
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Driver Info */}
-                    {ride.partner?.user && (
-                      <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
-                        <div className="w-9 h-9 bg-gray-300 rounded-full flex items-center justify-center overflow-hidden">
-                          {ride.partner.user.profile_image_url ? (
-                            <img 
-                              src={ride.partner.user.profile_image_url} 
-                              alt={ride.partner.user.first_name}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="text-gray-600 font-medium">
-                              {ride.partner.user.first_name?.[0] || 'D'}
-                            </div>
-                          )}
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900">
-                            {ride.partner.user.first_name} {ride.partner.user.last_name}
-                          </div>
-                          <div className="text-xs text-gray-500">Verified Driver</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-gray-200">
-                      <button 
-                        onClick={() => navigate('/ride-details', { state: { ride } })}
-                        className="text-[#21409A] hover:text-[#1a347d] font-medium text-sm"
-                      >
-                        View ride details →
-                      </button>
-                      
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <DollarSign size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                          <input
-                            type="number"
-                            value={priceOffers[ride.ride_id] || ''}
-                            onChange={(e) => handlePriceOfferChange(ride.ride_id, e.target.value)}
-                            placeholder="Offer price"
-                            min="1"
-                            step="1"
-                            className="w-32 border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#21409A]/30 focus:border-[#21409A]"
-                          />
-                        </div>
-                        <button 
-                          onClick={() => handlePriceOffer(ride.ride_id)}
-                          className="bg-white text-[#21409A] border border-[#21409A] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#21409A] hover:text-white transition-colors"
-                        >
-                          Make Offer
-                        </button>
-                        <button
-                          onClick={() => handleBookNow(ride)}
-                          className="bg-[#21409A] text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-[#1a347d] transition-colors"
-                        >
-                          Book Now
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+      {/* Main Content */}
+      <main className="max-w-6xl mx-auto px-4 py-6">
+        {loading ? (
+          <div className="flex flex-col justify-center items-center py-20">
+            <div className="relative">
+              <Loader2 className="w-16 h-16 animate-spin text-primary mb-6" />
             </div>
-          ) : (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                <MapPin size={24} className="text-gray-500" />
+            <span className="text-foreground font-medium text-lg mb-2">Searching for rides...</span>
+            <p className="text-muted-foreground text-center">
+              Looking for rides from <span className="font-medium text-foreground">{searchInfo.from}</span> to <span className="font-medium text-foreground">{searchInfo.to}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-3">
+              Please wait while we fetch available rides
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Results Summary */}
+            <div className="mb-6 p-4 bg-card rounded-lg border border-border">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-foreground font-medium text-lg">
+                    {rides.length} {rides.length === 1 ? 'Ride' : 'Rides'} Available
+                  </h2>
+                  <p className="text-muted-foreground text-sm">
+                    Found rides for {formatDisplayDate(searchInfo.date)}
+                  </p>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Showing all available rides
+                </div>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No rides found</h3>
-              <p className="text-gray-600 mb-6">Try adjusting your search criteria or search again</p>
-              <button 
-                onClick={() => navigate('/')}
-                className="bg-[#21409A] text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-[#1a347d] transition-colors"
-              >
-                ← Search Again
-              </button>
             </div>
-          )}
+
+            {/* Rides List */}
+            {rides.length > 0 ? (
+              <div className="flex flex-col lg:flex-row gap-6">
+                <div className="flex-1">
+                  <div className="space-y-4">
+                    {rides.map((ride, index) => (
+                      <div
+                        key={ride.ride_id}
+                        className="animate-fade-in"
+                        style={{ animationDelay: `${index * 100}ms` }}
+                      >
+                        <RideCard
+                          ride={ride}
+                          onRequest={() => handleRequest(ride)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Confirm Panel - Desktop */}
+                <div className="hidden lg:block w-[360px]">
+                  {showPanel && selectedRide && (
+                    <div className="sticky top-24">
+                      <ConfirmRequestPanel
+                        price={parseFloat(selectedRide.searched_segment.price)}
+                        onClose={handleClose}
+                        onConfirm={handleConfirm}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-20">
+                <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-muted flex items-center justify-center">
+                  <Car className="w-12 h-12 text-muted-foreground" />
+                </div>
+                <h3 className="text-foreground font-medium text-xl mb-3">No rides available</h3>
+                <p className="text-muted-foreground mb-8 max-w-md mx-auto">
+                  Sorry, we couldn't find any rides from <span className="font-medium text-foreground">{searchInfo.from}</span> to <span className="font-medium text-foreground">{searchInfo.to}</span> for {formatDisplayDate(searchInfo.date)}.
+                </p>
+                <div className="space-x-4">
+                  <button
+                    onClick={handleRetrySearch}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground px-8 py-3 rounded-full text-sm font-medium transition-colors"
+                  >
+                    Try Again
+                  </button>
+                  <button
+                    onClick={handleModifySearch}
+                    className="border border-border hover:bg-accent px-8 py-3 rounded-full text-sm font-medium transition-colors"
+                  >
+                    Change Date
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </main>
+
+      {/* Mobile Panel Overlay */}
+      {showPanel && selectedRide && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-foreground/20 backdrop-blur-sm"
+            onClick={handleClose}
+          />
+          <div className="absolute bottom-0 left-0 right-0 p-4">
+            <ConfirmRequestPanel
+              price={parseFloat(selectedRide.searched_segment.price)}
+              onClose={handleClose}
+              onConfirm={handleConfirm}
+            />
+          </div>
         </div>
-      </div>
-    </>
+      )}
+    </div>
   );
 };
 
-export default FindRideStep2;
+export default FindRide;

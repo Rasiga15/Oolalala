@@ -1,12 +1,106 @@
-// src/pages/offer-ride/OfferRide2.tsx
-import React, { useState, useEffect, useRef } from 'react';
-import { CircleArrowRight, RefreshCw, Plus, MapPin, ArrowLeft, Navigation, AlertCircle, Trash2, Info, X, Map, Route, ChevronRight, Ban, Menu, ChevronDown, ChevronUp, Maximize2, Minimize2 } from 'lucide-react';
+// src/pages/offer-ride/OfferRide2.tsx - UPDATED WITH IMMEDIATE STOP NAME UPDATES
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { CircleArrowRight, RefreshCw, Plus, MapPin, ArrowLeft, Navigation, AlertCircle, Trash2, Info, X, Map, Route, ChevronRight, Ban, Maximize2, Minimize2, Search, Locate } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleMap, Marker, Polyline, useLoadScript } from '@react-google-maps/api';
 import Navbar from '../layout/Navbar';
 import { computeRoutes } from '../../services/routesApi';
-import { reverseGeocode, calculateDistance, isStopBetweenRoute } from '../../services/placesApi';
+import { reverseGeocode, calculateDistance, searchPlacesAlongRoute } from '../../services/placesApi';
 import { StopPoint, Location, RouteOption } from '../../types';
+
+// Function to decode polyline string to LatLng points
+const decodePolyline = (encoded: string): google.maps.LatLngLiteral[] => {
+  if (!encoded) return [];
+
+  const points: google.maps.LatLngLiteral[] = [];
+  let index = 0;
+  const len = encoded.length;
+  let lat = 0;
+  let lng = 0;
+
+  while (index < len) {
+    let b: number;
+    let shift = 0;
+    let result = 0;
+    
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    
+    const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    
+    const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+
+    points.push({ lat: lat * 1e-5, lng: lng * 1e-5 });
+  }
+  
+  return points;
+};
+
+// Function to calculate distance from point to polyline (Haversine formula)
+const calculateDistanceFromPointToPolyline = (
+  point: { lat: number; lng: number },
+  polylinePoints: google.maps.LatLngLiteral[]
+): number => {
+  if (polylinePoints.length === 0) return Infinity;
+  
+  let minDistance = Infinity;
+  
+  // Calculate distance to each segment of the polyline
+  for (let i = 0; i < polylinePoints.length - 1; i++) {
+    const segmentStart = polylinePoints[i];
+    const segmentEnd = polylinePoints[i + 1];
+    
+    // Calculate distance to line segment
+    const distance = calculateDistance(point, segmentStart);
+    
+    if (distance < minDistance) {
+      minDistance = distance;
+    }
+  }
+  
+  return minDistance;
+};
+
+// Function to validate if stop is on polyline route (within 50km)
+const validateStopOnPolylineRoute = (
+  stop: { lat: number; lng: number },
+  polylinePoints: google.maps.LatLngLiteral[],
+  maxDistanceKm: number = 50
+): { isValid: boolean; message: string; distanceFromRoute: number } => {
+  if (polylinePoints.length === 0) {
+    return {
+      isValid: false,
+      message: 'No route selected. Please select a route first.',
+      distanceFromRoute: Infinity
+    };
+  }
+  
+  const distanceFromRoute = calculateDistanceFromPointToPolyline(stop, polylinePoints);
+  
+  const isValid = distanceFromRoute <= maxDistanceKm;
+  
+  return {
+    isValid,
+    message: isValid 
+      ? `Location is on the route (${distanceFromRoute.toFixed(1)} km from route line)` 
+      : `Location is ${distanceFromRoute.toFixed(1)} km away from the route. Maximum allowed distance is ${maxDistanceKm} km.`,
+    distanceFromRoute
+  };
+};
 
 // Toast Notification Component
 const ToastNotification: React.FC<{
@@ -28,17 +122,520 @@ const ToastNotification: React.FC<{
   }, [onClose]);
 
   return (
-    <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in`}>
-      <AlertCircle size={18} />
-      <span className="font-medium">{message}</span>
+    <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 ${bgColor} text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in`}>
+      <AlertCircle size={16} />
+      <span className="text-sm">{message}</span>
       <button onClick={onClose} className="ml-2">
-        <X size={16} />
+        <X size={14} />
       </button>
     </div>
   );
 };
 
-// Modal Component for Add Stop Confirmation
+// Helper function to check if a string is a coordinate
+const isCoordinateString = (text: string): boolean => {
+  if (!text || text.trim().length === 0) return false;
+  
+  // Pattern for coordinates like "12.8122, 79.8168" or "-12.8122, -79.8168"
+  const coordinatePattern = /^\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*$/;
+  return coordinatePattern.test(text);
+};
+
+// Extract best location name from address components
+const extractBestLocationName = (addressComponents: any[]): string => {
+  if (!addressComponents || addressComponents.length === 0) return '';
+  
+  // Priority order for location types
+  const priorityTypes = [
+    'locality',          // City/Town
+    'sublocality',       // Suburb/Neighborhood
+    'administrative_area_level_2', // District
+    'neighborhood',      // Neighborhood
+    'route',             // Road/Street
+    'administrative_area_level_1', // State
+    'postal_town',       // Postal town
+  ];
+  
+  // Try to find the most specific type first
+  for (const type of priorityTypes) {
+    for (const component of addressComponents) {
+      const types = component.types || [];
+      const longName = component.long_name || '';
+      
+      if (types.includes(type) && longName && !isCoordinateString(longName)) {
+        return longName;
+      }
+    }
+  }
+  
+  // Fallback: Return the first non-coordinate, non-numeric component
+  for (const component of addressComponents) {
+    const longName = component.long_name || '';
+    if (longName && !isCoordinateString(longName) && !/^\d+$/.test(longName)) {
+      return longName;
+    }
+  }
+  
+  return '';
+};
+
+// Extract city name from full address
+const extractCityFromAddress = (fullAddress: string): string => {
+  if (!fullAddress) return '';
+  
+  const parts = fullAddress.split(',');
+  
+  // Try to find city name (usually the first part)
+  for (let i = 0; i < Math.min(parts.length, 3); i++) {
+    const part = parts[i].trim();
+    
+    // Skip if it's a coordinate or empty
+    if (!part || isCoordinateString(part) || /^\d+$/.test(part)) {
+      continue;
+    }
+    
+    // Skip country/state/district indicators
+    const lowerPart = part.toLowerCase();
+    if (
+      lowerPart.includes('india') ||
+      lowerPart.includes('district') ||
+      lowerPart.includes('state') ||
+      lowerPart.includes('country') ||
+      lowerPart.includes('pin ') ||
+      lowerPart.includes('postal code')
+    ) {
+      continue;
+    }
+    
+    // Check if it's a reasonable city name (2-30 characters)
+    if (part.length >= 2 && part.length <= 30) {
+      return part;
+    }
+  }
+  
+  // Return first meaningful part
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed && !isCoordinateString(trimmed) && trimmed.length >= 2) {
+      return trimmed;
+    }
+  }
+  
+  return '';
+};
+
+// Get accurate location name from coordinates - UPDATED WITH CACHING FOR BETTER PERFORMANCE
+const getAccurateLocationName = async (lat: number, lng: number): Promise<{name: string, address: string}> => {
+  const cacheKey = `${lat.toFixed(6)}_${lng.toFixed(6)}`;
+  
+  // Check cache first
+  if (window.locationNameCache && window.locationNameCache[cacheKey]) {
+    return window.locationNameCache[cacheKey];
+  }
+  
+  try {
+    // First try using reverse geocoding with detailed result_type
+    const reverseResults = await reverseGeocode(lat, lng);
+    
+    if (reverseResults.length > 0) {
+      const fullAddress = reverseResults[0].formattedAddress || '';
+      
+      // Try to get detailed geocoding information
+      const detailedResponse = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyCsWQJdiuPGmabvpX-_4FhyC9C5GKu3TLk&language=en&result_type=locality|sublocality|administrative_area_level_2|neighborhood|route`
+      );
+      
+      if (detailedResponse.ok) {
+        const detailedData = await detailedResponse.json();
+        
+        if (detailedData.status === 'OK' && detailedData.results && detailedData.results.length > 0) {
+          const result = detailedData.results[0];
+          const addressComponents = result.address_components || [];
+          
+          // Try to extract best name from address components
+          const bestName = extractBestLocationName(addressComponents);
+          
+          if (bestName && bestName !== '') {
+            const locationData = {
+              name: bestName,
+              address: fullAddress
+            };
+            
+            // Cache the result
+            if (!window.locationNameCache) {
+              window.locationNameCache = {};
+            }
+            window.locationNameCache[cacheKey] = locationData;
+            
+            return locationData;
+          }
+          
+          // If no good name from components, try to extract from formatted address
+          const formattedAddress = result.formatted_address || fullAddress;
+          const cityName = extractCityFromAddress(formattedAddress);
+          
+          if (cityName && cityName !== '') {
+            const locationData = {
+              name: cityName,
+              address: formattedAddress
+            };
+            
+            // Cache the result
+            if (!window.locationNameCache) {
+              window.locationNameCache = {};
+            }
+            window.locationNameCache[cacheKey] = locationData;
+            
+            return locationData;
+          }
+        }
+      }
+      
+      // Fallback: Extract city name from full address
+      const cityName = extractCityFromAddress(fullAddress);
+      if (cityName && cityName !== '') {
+        const locationData = {
+          name: cityName,
+          address: fullAddress
+        };
+        
+        // Cache the result
+        if (!window.locationNameCache) {
+          window.locationNameCache = {};
+        }
+        window.locationNameCache[cacheKey] = locationData;
+        
+        return locationData;
+      }
+      
+      // Last resort: Return first part of address
+      const firstPart = fullAddress.split(',')[0].trim();
+      if (firstPart && !isCoordinateString(firstPart)) {
+        const locationData = {
+          name: firstPart,
+          address: fullAddress
+        };
+        
+        // Cache the result
+        if (!window.locationNameCache) {
+          window.locationNameCache = {};
+        }
+        window.locationNameCache[cacheKey] = locationData;
+        
+        return locationData;
+      }
+    }
+  } catch (error) {
+    console.error('Error getting accurate location name:', error);
+  }
+  
+  // Fallback to coordinates if everything fails
+  const fallbackData = {
+    name: `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+    address: `Latitude: ${lat.toFixed(6)}, Longitude: ${lng.toFixed(6)}`
+  };
+  
+  // Cache even the fallback
+  if (!window.locationNameCache) {
+    window.locationNameCache = {};
+  }
+  window.locationNameCache[cacheKey] = fallbackData;
+  
+  return fallbackData;
+};
+
+// Add type for window cache
+declare global {
+  interface Window {
+    locationNameCache?: Record<string, {name: string, address: string}>;
+  }
+}
+
+// Manual Stop Search Modal Component
+const ManualStopSearchModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (stopData: StopPoint) => void;
+  origin: { lat: number; lng: number };
+  destination: { lat: number; lng: number };
+  isFullCar: boolean;
+  polylinePoints: google.maps.LatLngLiteral[];
+  onSearchPlaces: (query: string) => Promise<Array<{
+    placeId: string;
+    name: string;
+    address: string;
+    location: { lat: number; lng: number };
+  }>>;
+}> = ({ isOpen, onClose, onConfirm, origin, destination, isFullCar, polylinePoints, onSearchPlaces }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{
+    placeId: string;
+    name: string;
+    address: string;
+    location: { lat: number; lng: number };
+  }>>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedPlace, setSelectedPlace] = useState<{
+    placeId: string;
+    name: string;
+    address: string;
+    location: { lat: number; lng: number };
+  } | null>(null);
+  const [validation, setValidation] = useState<{
+    isValid: boolean;
+    message: string;
+    distanceFromRoute: number;
+  }>({ isValid: false, message: '', distanceFromRoute: 0 });
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const results = await onSearchPlaces(searchQuery);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handlePlaceSelect = async (place: {
+    placeId: string;
+    name: string;
+    address: string;
+    location: { lat: number; lng: number };
+  }) => {
+    setSelectedPlace(place);
+    
+    // Validate if place is on the polyline route (within 50km)
+    const validationResult = validateStopOnPolylineRoute(
+      place.location,
+      polylinePoints,
+      50
+    );
+
+    setValidation(validationResult);
+  };
+
+  const handleConfirm = async () => {
+    if (selectedPlace && validation.isValid) {
+      // Get accurate name from coordinates
+      const accurateName = await getAccurateLocationName(
+        selectedPlace.location.lat,
+        selectedPlace.location.lng
+      );
+      
+      onConfirm({
+        stopId: Date.now(),
+        type: 'STOP',
+        name: accurateName.name, // Use accurate name
+        address: accurateName.address, // Use accurate address
+        lat: selectedPlace.location.lat,
+        lng: selectedPlace.location.lng
+      });
+      resetModal();
+    }
+  };
+
+  const resetModal = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setSelectedPlace(null);
+    setValidation({ isValid: false, message: '', distanceFromRoute: 0 });
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  if (isFullCar) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+        <div className="bg-white rounded-lg w-full max-w-sm p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-800">Stops Not Allowed</h3>
+            <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full">
+              <X size={18} />
+            </button>
+          </div>
+          
+          <div className="mb-4">
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+              <div className="flex items-center gap-2 text-red-600">
+                <Ban size={16} />
+                <span className="text-sm">Stops are not allowed for full car rides</span>
+              </div>
+              <p className="mt-2 text-sm text-gray-600">
+                Since this is a full car ride (private), you cannot add intermediate stops. 
+                The ride will go directly from pickup to destination.
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2 bg-[#21409A] text-white rounded-lg font-medium hover:bg-[#1a357c]"
+            >
+              Okay
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+      <div className="bg-white rounded-lg w-full max-w-md p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-800">Search for a Stop</h3>
+          <button onClick={resetModal} className="p-1 hover:bg-gray-100 rounded-full">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mb-3">
+          <div className="text-sm text-gray-600 mb-1">Search for cities/places along the route:</div>
+          <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded mb-2">
+            <div className="flex items-center gap-1 mb-1">
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <span className="font-medium">Route:</span> 
+              <span>Selected route polyline (within 50km)</span>
+            </div>
+            <div className="text-xs mt-1">
+              <span className="font-medium">Note:</span> Only locations within 50km of the route line are allowed
+            </div>
+          </div>
+        </div>
+
+        {/* Search Input */}
+        <div className="mb-3">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Enter city or place name..."
+              className="w-full p-2 pl-9 border border-gray-300 rounded-lg font-medium text-gray-800 bg-transparent"
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            />
+            <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <button
+              onClick={handleSearch}
+              disabled={!searchQuery.trim() || isSearching}
+              className={`absolute right-2 top-1/2 transform -translate-y-1/2 px-2 py-1 text-xs rounded ${
+                !searchQuery.trim() || isSearching
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-[#21409A] text-white hover:bg-[#1a357c]'
+              }`}
+            >
+              {isSearching ? 'Searching...' : 'Search'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Note: Only locations within 50km of the selected route are allowed
+          </p>
+        </div>
+
+        {/* Search Results */}
+        {searchResults.length > 0 && (
+          <div className="mb-3 max-h-60 overflow-y-auto">
+            <div className="text-sm text-gray-600 mb-2">Search Results:</div>
+            <div className="space-y-1">
+              {searchResults.map((place) => (
+                <div
+                  key={place.placeId}
+                  onClick={() => handlePlaceSelect(place)}
+                  className={`p-2 rounded-lg border cursor-pointer transition-all ${
+                    selectedPlace?.placeId === place.placeId
+                      ? 'border-[#21409A] bg-[#21409A]/5'
+                      : 'border-gray-200 hover:border-[#21409A]/50 hover:bg-[#21409A]/2'
+                  }`}
+                >
+                  <div className="font-medium text-gray-800 text-sm">{place.name}</div>
+                  <div className="text-xs text-gray-500 truncate">{place.address}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Selected Place and Validation */}
+        {selectedPlace && (
+          <div className="mb-3 p-3 border rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-medium text-gray-800 text-sm">Selected Location:</div>
+              <button
+                onClick={() => setSelectedPlace(null)}
+                className="text-xs text-red-500 hover:text-red-700"
+              >
+                Clear
+              </button>
+            </div>
+            
+            <div className="mb-2">
+              <div className="font-medium text-sm">{selectedPlace.name}</div>
+              <div className="text-xs text-gray-500">{selectedPlace.address}</div>
+              <div className="text-xs text-gray-400 mt-1">
+                Coordinates: {selectedPlace.location.lat.toFixed(6)}, {selectedPlace.location.lng.toFixed(6)}
+              </div>
+            </div>
+
+            <div className={`p-2 rounded-lg ${validation.isValid ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+              <div className={`flex items-center gap-2 ${validation.isValid ? 'text-green-600' : 'text-red-600'}`}>
+                {validation.isValid ? (
+                  <>
+                    <CircleArrowRight size={14} />
+                    <span className="text-sm font-medium">Valid Stop Location</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle size={14} />
+                    <span className="text-sm font-medium">Invalid Stop Location</span>
+                  </>
+                )}
+              </div>
+              <p className="text-xs mt-1">
+                {validation.message}
+                {validation.distanceFromRoute > 0 && (
+                  <span className={`block ${validation.isValid ? 'text-green-600' : 'text-red-600'}`}>
+                    Distance from route: {validation.distanceFromRoute.toFixed(1)} km
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            onClick={handleConfirm}
+            disabled={!selectedPlace || !validation.isValid}
+            className={`flex-1 py-2 rounded-lg font-medium ${
+              selectedPlace && validation.isValid
+                ? 'bg-[#21409A] text-white hover:bg-[#1a357c]' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            Add Stop
+          </button>
+          <button
+            onClick={resetModal}
+            className="flex-1 py-2 bg-gray-100 text-gray-800 rounded-lg font-medium hover:bg-gray-200"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Add Stop Modal Component - FIXED WITH IMMEDIATE UPDATES
 const AddStopModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -50,44 +647,84 @@ const AddStopModal: React.FC<{
   isFullCar: boolean;
 }> = ({ isOpen, onClose, onConfirm, position, address, isValid, validationMessage, isFullCar }) => {
   const [stopName, setStopName] = useState('');
+  const [loadingName, setLoadingName] = useState(false);
+  const [hasFetchedName, setHasFetchedName] = useState(false);
 
+  // Fetch accurate name immediately when modal opens
   useEffect(() => {
-    if (address && !stopName) {
-      const name = address.split(',')[0].trim();
-      setStopName(name);
+    const fetchAccurateName = async () => {
+      if (position && !hasFetchedName) {
+        setLoadingName(true);
+        try {
+          const accurateName = await getAccurateLocationName(position.lat, position.lng);
+          // IMMEDIATE STATE UPDATE - This will trigger re-render
+          setStopName(accurateName.name);
+          setHasFetchedName(true);
+        } catch (error) {
+          console.error('Error fetching accurate name:', error);
+          // Try to extract city name from address as fallback
+          const cityName = extractCityFromAddress(address);
+          setStopName(cityName || 'Stop');
+          setHasFetchedName(true);
+        } finally {
+          setLoadingName(false);
+        }
+      }
+    };
+
+    if (isOpen && position) {
+      fetchAccurateName();
     }
-  }, [address]);
+    
+    // Reset when modal closes
+    return () => {
+      if (!isOpen) {
+        setHasFetchedName(false);
+        setStopName('');
+      }
+    };
+  }, [isOpen, position, address]);
+
+  // Also update when address changes
+  useEffect(() => {
+    if (address && !stopName && !loadingName) {
+      const cityName = extractCityFromAddress(address);
+      if (cityName) {
+        setStopName(cityName);
+      }
+    }
+  }, [address, stopName, loadingName]);
 
   if (!isOpen) return null;
 
   if (isFullCar) {
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-        <div className="bg-card rounded-xl w-full max-w-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-foreground">Stops Not Allowed</h3>
-            <button onClick={onClose} className="p-1 hover:bg-accent rounded-full">
-              <X size={20} />
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+        <div className="bg-white rounded-lg w-full max-w-sm p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-800">Stops Not Allowed</h3>
+            <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full">
+              <X size={18} />
             </button>
           </div>
           
           <div className="mb-4">
-            <div className={`p-3 rounded-lg bg-red-500/10 border border-red-500`}>
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200">
               <div className="flex items-center gap-2 text-red-600">
                 <Ban size={16} />
                 <span className="text-sm">Stops are not allowed for full car rides</span>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className="mt-2 text-sm text-gray-600">
                 Since this is a full car ride (private), you cannot add intermediate stops. 
                 The ride will go directly from pickup to destination.
               </p>
             </div>
           </div>
           
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90"
+              className="flex-1 py-2 bg-[#21409A] text-white rounded-lg font-medium hover:bg-[#1a357c]"
             >
               Okay
             </button>
@@ -98,46 +735,60 @@ const AddStopModal: React.FC<{
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-card rounded-xl w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-foreground">Add New Stop</h3>
-          <button onClick={onClose} className="p-1 hover:bg-accent rounded-full">
-            <X size={20} />
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+      <div className="bg-white rounded-lg w-full max-w-sm p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-800">Add New Stop</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full">
+            <X size={18} />
           </button>
         </div>
         
-        <div className="mb-4">
-          <div className="text-sm text-muted-foreground mb-2">Stop Name:</div>
-          <input
-            type="text"
-            value={stopName}
-            onChange={(e) => setStopName(e.target.value)}
-            placeholder="Enter stop name"
-            className="w-full p-3 border border-border rounded-lg font-medium text-foreground bg-transparent"
-          />
+        <div className="mb-3">
+          <div className="text-sm text-gray-600 mb-1">Stop Name:</div>
+          <div className="relative">
+            <input
+              type="text"
+              value={stopName}
+              onChange={(e) => {
+                // MANUAL UPDATE - This triggers immediate UI update
+                setStopName(e.target.value);
+              }}
+              placeholder="Enter stop name"
+              className="w-full p-2 border border-gray-300 rounded-lg font-medium text-gray-800 bg-transparent"
+              disabled={loadingName}
+            />
+            {loadingName && (
+              <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            {loadingName ? 'Detecting location name...' : 'Accurately detected location name (city/town)'}
+          </p>
         </div>
 
-        <div className="mb-4">
-          <div className="text-sm text-muted-foreground mb-2">Location Address:</div>
-          <div className="font-medium text-foreground p-3 bg-accent/30 rounded-lg">
+        <div className="mb-3">
+          <div className="text-sm text-gray-600 mb-1">Location Address:</div>
+          <div className="font-medium text-gray-800 p-2 bg-gray-50 rounded-lg max-h-20 overflow-y-auto">
             {address || 'Fetching address...'}
           </div>
           {position && (
-            <div className="text-xs text-muted-foreground mt-2">
+            <div className="text-xs text-gray-500 mt-1">
               Coordinates: {position.lat.toFixed(6)}, {position.lng.toFixed(6)}
             </div>
           )}
         </div>
 
-        <div className={`mb-4 p-3 rounded-lg ${isValid ? 'bg-green-500/10 border border-green-500' : 'bg-red-500/10 border border-red-500'}`}>
+        <div className={`mb-3 p-2 rounded-lg ${isValid ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
           <div className={`flex items-center gap-2 ${isValid ? 'text-green-600' : 'text-red-600'}`}>
-            <AlertCircle size={16} />
+            <AlertCircle size={14} />
             <span className="text-sm">{validationMessage}</span>
           </div>
         </div>
         
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col sm:flex-row gap-2">
           <button
             onClick={() => {
               if (position && isValid && stopName) {
@@ -151,20 +802,113 @@ const AddStopModal: React.FC<{
                 });
               }
             }}
-            disabled={!isValid || !stopName}
-            className={`flex-1 py-2.5 rounded-lg font-medium ${
-              isValid && stopName
-                ? 'bg-primary text-primary-foreground hover:bg-primary/90' 
+            disabled={!isValid || !stopName || loadingName}
+            className={`flex-1 py-2 rounded-lg font-medium ${
+              isValid && stopName && !loadingName
+                ? 'bg-[#21409A] text-white hover:bg-[#1a357c]' 
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             }`}
           >
-            Add Stop
+            {loadingName ? 'Loading...' : 'Add Stop'}
           </button>
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 bg-muted text-foreground rounded-lg font-medium hover:bg-accent"
+            className="flex-1 py-2 bg-gray-100 text-gray-800 rounded-lg font-medium hover:bg-gray-200"
           >
             Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Invalid Stop Modal Component
+const InvalidStopModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  stopLocation: { lat: number; lng: number };
+  polylinePoints: google.maps.LatLngLiteral[];
+  errorMessage: string;
+  distanceFromRoute: number;
+}> = ({ isOpen, onClose, stopLocation, polylinePoints, errorMessage, distanceFromRoute }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+      <div className="bg-white rounded-lg w-full max-w-sm p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-red-600">Invalid Stop Location</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full">
+            <X size={18} />
+          </button>
+        </div>
+        
+        <div className="mb-3">
+          <div className="p-2 rounded-lg bg-red-50 border border-red-200">
+            <div className="flex items-center gap-2 text-red-600 mb-1">
+              <AlertCircle size={14} />
+              <span className="text-sm font-medium">{errorMessage}</span>
+            </div>
+            <p className="text-sm text-gray-600">
+              Please select a location within 50km of the selected route.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2 mb-3">
+          <div className="flex items-start gap-2">
+            <div className="w-5 h-5 rounded-full bg-[#21409A] text-white flex items-center justify-center text-xs flex-shrink-0 mt-0.5">
+              !
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-[#21409A]">Selected Location</div>
+              <div className="text-xs text-gray-500">
+                {stopLocation.lat.toFixed(4)}, {stopLocation.lng.toFixed(4)}
+              </div>
+              <div className="text-xs text-amber-600 mt-0.5">
+                <span className="font-medium">Distance from route:</span> {distanceFromRoute.toFixed(1)} km
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-start gap-2">
+            <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs flex-shrink-0 mt-0.5">
+              i
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-medium">Route Information</div>
+              <div className="text-xs text-gray-500">
+                Route length: {polylinePoints.length} points
+              </div>
+              <div className="text-xs text-gray-500">
+                Allowed distance: Within 50km of route
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-2 bg-blue-50 border border-blue-100 rounded-lg mb-3">
+          <div className="flex items-start gap-2">
+            <Info size={14} className="text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-blue-700">
+              <p className="font-medium mb-1">How to add a valid stop:</p>
+              <ol className="list-decimal pl-4 space-y-0.5 text-xs">
+                <li>Click on the map along the blue route line</li>
+                <li>Use the "Search Cities" option to find locations near the route</li>
+                <li>Make sure the location is within 50km of the route line</li>
+                <li>Try adding a stop closer to the route</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 bg-[#21409A] text-white rounded-lg font-medium hover:bg-[#1a357c]"
+          >
+            Okay, I'll try again
           </button>
         </div>
       </div>
@@ -196,6 +940,15 @@ const OfferRide2: React.FC = () => {
     isValid: false,
     validationMessage: ''
   });
+  const [manualSearchModal, setManualSearchModal] = useState({
+    isOpen: false
+  });
+  const [invalidStopModal, setInvalidStopModal] = useState({
+    isOpen: false,
+    position: null as { lat: number; lng: number } | null,
+    errorMessage: '',
+    distanceFromRoute: 0
+  });
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [isAddStopMode, setIsAddStopMode] = useState(false);
   const [activeStopIndex, setActiveStopIndex] = useState<number | null>(null);
@@ -216,6 +969,23 @@ const OfferRide2: React.FC = () => {
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
+  // Get current polyline points
+  const selectedRouteData = routes.find(r => r.id === selectedRoute);
+  const polylinePath = selectedRouteData?.polyline 
+    ? decodePolyline(selectedRouteData.polyline)
+    : [];
+
+  // Background fare calculation functions
+  const calculateSegmentFare = (distanceKm: number): number => {
+    if (!rideData) return 0;
+    
+    const farePerKm = parseFloat(rideData.settings?.fare_per_km_car || '12');
+    const seats = rideData.seats || 1;
+    
+    const baseFare = distanceKm * farePerKm / seats;
+    return Math.round(baseFare / 10) * 10;
+  };
+
   // Handle responsive behavior
   useEffect(() => {
     const handleResize = () => {
@@ -227,6 +997,7 @@ const OfferRide2: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Initialize stops with proper names
   useEffect(() => {
     if (!rideData?.pickup || !rideData?.drop) {
       navigate('/offer-ride1');
@@ -239,27 +1010,51 @@ const OfferRide2: React.FC = () => {
     });
     setMapZoom(12);
     
-    const initialStops: StopPoint[] = [
-      {
+    // Initialize stops with proper names
+    const initializeStops = async () => {
+      const initialStops: StopPoint[] = [];
+      
+      // Get accurate name for pickup
+      const pickupName = await getAccurateLocationName(
+        rideData.pickup.lat,
+        rideData.pickup.lng
+      );
+      
+      initialStops.push({
         stopId: 1,
         type: 'ORIGIN',
-        name: rideData.pickup.name || rideData.pickup.address.split(',')[0] || 'Origin',
-        address: rideData.pickup.address || 'Origin Location',
+        name: pickupName.name,
+        address: pickupName.address,
         lat: rideData.pickup.lat,
         lng: rideData.pickup.lng
-      },
-      {
+      });
+      
+      // Get accurate name for drop
+      const dropName = await getAccurateLocationName(
+        rideData.drop.lat,
+        rideData.drop.lng
+      );
+      
+      initialStops.push({
         stopId: 2,
         type: 'DESTINATION',
-        name: rideData.drop.name || rideData.drop.address.split(',')[0] || 'Destination',
-        address: rideData.drop.address || 'Destination Location',
+        name: dropName.name,
+        address: dropName.address,
         lat: rideData.drop.lat,
         lng: rideData.drop.lng
-      }
-    ];
+      });
+      
+      // Use setState callback to ensure proper update
+      setStopPoints(prev => {
+        const updatedStops = [...initialStops];
+        console.log('Initializing stops:', updatedStops);
+        return updatedStops;
+      });
+      
+      loadRoutes(initialStops);
+    };
     
-    setStopPoints(initialStops);
-    loadRoutes(initialStops);
+    initializeStops();
   }, [rideData, navigate]);
 
   const loadRoutes = async (stops: StopPoint[]) => {
@@ -283,9 +1078,11 @@ const OfferRide2: React.FC = () => {
       if (results.routes && results.routes.length > 0) {
         const routeOptions: RouteOption[] = results.routes.map((route, index) => {
           const durationSeconds = parseDurationToSeconds(route.duration);
+          const durationFormatted = formatDuration(route.duration);
+          
           return {
             id: index + 1,
-            duration: formatDuration(route.duration),
+            duration: durationFormatted,
             durationSeconds,
             distance: `${(route.distanceMeters / 1000).toFixed(1)} km`,
             distanceMeters: route.distanceMeters,
@@ -362,7 +1159,7 @@ const OfferRide2: React.FC = () => {
     const minutes = match[2] ? parseInt(match[2].replace('M', '')) : 0;
 
     if (hours > 0) {
-      return `${hours}h ${minutes}min`;
+      return `${hours}h ${minutes}m`;
     }
     return `${minutes} min`;
   };
@@ -380,42 +1177,177 @@ const OfferRide2: React.FC = () => {
     return hours + minutes + seconds;
   };
 
+  // Function to search places along route
+  const handleSearchPlaces = async (query: string): Promise<Array<{
+    placeId: string;
+    name: string;
+    address: string;
+    location: { lat: number; lng: number };
+  }>> => {
+    const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
+    const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
+    
+    if (!origin || !destination) {
+      throw new Error('Origin or destination not found');
+    }
+
+    try {
+      const places = await searchPlacesAlongRoute(
+        { lat: origin.lat, lng: origin.lng },
+        { lat: destination.lat, lng: destination.lng },
+        query,
+        50 // 50km radius from route
+      );
+
+      // Filter places that are within 50km of the polyline route
+      const filteredPlaces = places.filter(place => {
+        const validation = validateStopOnPolylineRoute(
+          { lat: place.lat, lng: place.lng },
+          polylinePath,
+          50
+        );
+        return validation.isValid;
+      });
+
+      return filteredPlaces.map(place => ({
+        placeId: place.placeId,
+        name: place.name,
+        address: place.address,
+        location: { lat: place.lat, lng: place.lng }
+      }));
+    } catch (error) {
+      console.error('Error searching places:', error);
+      throw error;
+    }
+  };
+
+  // Handle manual search stop addition
+  const handleManualSearchStop = async (stopData: StopPoint) => {
+    const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
+    const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
+    
+    if (!origin || !destination) {
+      setToast({ 
+        message: 'Origin or destination not found', 
+        type: 'error' 
+      });
+      return;
+    }
+
+    // Validate the stop location is on the polyline route (within 50km)
+    const validation = validateStopOnPolylineRoute(
+      { lat: stopData.lat, lng: stopData.lng },
+      polylinePath,
+      50
+    );
+
+    if (!validation.isValid) {
+      setInvalidStopModal({
+        isOpen: true,
+        position: { lat: stopData.lat, lng: stopData.lng },
+        errorMessage: validation.message,
+        distanceFromRoute: validation.distanceFromRoute || 0
+      });
+      return;
+    }
+
+    try {
+      // Get accurate name from coordinates
+      const accurateName = await getAccurateLocationName(
+        stopData.lat,
+        stopData.lng
+      );
+      
+      const maxStopId = Math.max(...stopPoints.map(stop => stop.stopId));
+      const newStopId = maxStopId + 1;
+      
+      const newStop: StopPoint = {
+        ...stopData,
+        stopId: newStopId,
+        name: accurateName.name,
+        address: accurateName.address
+      };
+      
+      // Use setState callback to ensure immediate update
+      setStopPoints(prevStops => {
+        const updatedStops = [...prevStops];
+        const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
+        updatedStops.splice(destinationIndex, 0, newStop);
+        
+        // Reassign stop IDs
+        const reassignedStops = updatedStops.map((stop, index) => ({
+          ...stop,
+          stopId: index + 1
+        }));
+        
+        console.log('Manual search stop added:', reassignedStops);
+        return reassignedStops;
+      });
+      
+      setManualSearchModal({ isOpen: false });
+      
+      setToast({ 
+        message: 'Stop added successfully!', 
+        type: 'success' 
+      });
+      
+      // Recalculate routes
+      setIsRecalculating(true);
+      setTimeout(() => {
+        setStopPoints(prev => {
+          loadRoutes(prev);
+          return prev;
+        });
+        setIsRecalculating(false);
+      }, 500);
+    } catch (error) {
+      console.error('Error adding stop:', error);
+      setToast({ 
+        message: 'Failed to add stop', 
+        type: 'error' 
+      });
+    }
+  };
+
   const handleOneClickAddStop = async () => {
     if (isFullCar) {
       setToast({ 
-        message: '❌ Stops are not allowed for full car rides', 
+        message: 'Stops are not allowed for full car rides', 
         type: 'error' 
       });
       return;
     }
 
     try {
-      const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
-      const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
+      // Find a point on the polyline route for midpoint
+      if (polylinePath.length === 0) {
+        setToast({ 
+          message: 'No route selected. Please select a route first.', 
+          type: 'error' 
+        });
+        return;
+      }
+
+      // Take the midpoint of the polyline
+      const midIndex = Math.floor(polylinePath.length / 2);
+      const midPoint = polylinePath[midIndex];
       
-      if (!origin || !destination) return;
+      // Get accurate name from coordinates
+      const accurateName = await getAccurateLocationName(midPoint.lat, midPoint.lng);
       
-      const midLat = (origin.lat + destination.lat) / 2;
-      const midLng = (origin.lng + destination.lng) / 2;
-      
-      const reverseResults = await reverseGeocode(midLat, midLng);
-      const address = reverseResults.length > 0 
-        ? reverseResults[0].displayName.text 
-        : `Midpoint stop`;
-      
-      const name = address.split(',')[0].trim();
-      
-      const validation = isStopBetweenRoute(
-        { lat: midLat, lng: midLng },
-        { lat: origin.lat, lng: origin.lng },
-        { lat: destination.lat, lng: destination.lng },
-        100
+      // Validate the stop location is on the polyline route
+      const validation = validateStopOnPolylineRoute(
+        midPoint,
+        polylinePath,
+        50
       );
       
       if (!validation.isValid) {
-        setToast({ 
-          message: `❌ Cannot add stop: ${validation.message}`, 
-          type: 'error' 
+        setInvalidStopModal({
+          isOpen: true,
+          position: midPoint,
+          errorMessage: validation.message,
+          distanceFromRoute: validation.distanceFromRoute || 0
         });
         return;
       }
@@ -426,43 +1358,53 @@ const OfferRide2: React.FC = () => {
       const newStop: StopPoint = {
         stopId: newStopId,
         type: 'STOP',
-        name: name,
-        address: address,
-        lat: midLat,
-        lng: midLng
+        name: accurateName.name,
+        address: accurateName.address,
+        lat: midPoint.lat,
+        lng: midPoint.lng
       };
       
-      const updatedStops = [...stopPoints];
-      const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
-      updatedStops.splice(destinationIndex, 0, newStop);
-      
-      const reassignedStops = updatedStops.map((stop, index) => ({
-        ...stop,
-        stopId: index + 1
-      }));
-      
-      setStopPoints(reassignedStops);
+      // Use setState callback to ensure immediate update
+      setStopPoints(prevStops => {
+        const updatedStops = [...prevStops];
+        const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
+        updatedStops.splice(destinationIndex, 0, newStop);
+        
+        // Reassign stop IDs
+        const reassignedStops = updatedStops.map((stop, index) => ({
+          ...stop,
+          stopId: index + 1
+        }));
+        
+        console.log('One-click stop added:', reassignedStops);
+        return reassignedStops;
+      });
       
       setToast({ 
-        message: '✅ Stop added at midpoint!', 
+        message: 'Stop added on route!', 
         type: 'success' 
       });
       
+      // Recalculate routes
       setIsRecalculating(true);
       setTimeout(() => {
-        loadRoutes(reassignedStops);
+        setStopPoints(prev => {
+          loadRoutes(prev);
+          return prev;
+        });
         setIsRecalculating(false);
       }, 500);
       
     } catch (error) {
       console.error('Error adding midpoint stop:', error);
       setToast({ 
-        message: '❌ Failed to add stop', 
+        message: 'Failed to add stop', 
         type: 'error' 
       });
     }
   };
 
+  // Handle Map Click
   const handleMapClick = async (e: google.maps.MapMouseEvent) => {
     if (isFullCar) {
       setAddStopModal({
@@ -481,44 +1423,40 @@ const OfferRide2: React.FC = () => {
     const lng = e.latLng.lng();
 
     try {
-      const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
-      const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
-      
-      if (!origin || !destination) {
-        setToast({ 
-          message: '❌ Origin and Destination not found', 
-          type: 'error' 
+      // Validate if the clicked location is on the polyline route (within 50km)
+      const validation = validateStopOnPolylineRoute(
+        { lat, lng },
+        polylinePath,
+        50
+      );
+
+      if (!validation.isValid) {
+        setInvalidStopModal({
+          isOpen: true,
+          position: { lat, lng },
+          errorMessage: validation.message,
+          distanceFromRoute: validation.distanceFromRoute
         });
         return;
       }
 
-      const reverseResults = await reverseGeocode(lat, lng);
-      const address = reverseResults.length > 0 
-        ? reverseResults[0].displayName.text 
-        : `Location at ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-
-      const validation = isStopBetweenRoute(
-        { lat, lng },
-        { lat: origin.lat, lng: origin.lng },
-        { lat: destination.lat, lng: destination.lng },
-        100
-      );
+      // Get accurate name and address
+      const accurateName = await getAccurateLocationName(lat, lng);
 
       setAddStopModal({
         isOpen: true,
         position: { lat, lng },
-        address,
+        address: accurateName.address,
         isValid: validation.isValid,
         validationMessage: validation.message
       });
     } catch (error) {
       console.error('Error reverse geocoding:', error);
-      setAddStopModal({
+      setInvalidStopModal({
         isOpen: true,
         position: { lat, lng },
-        address: `Location at ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-        isValid: false,
-        validationMessage: 'Unable to validate location. Please try again.'
+        errorMessage: 'Unable to validate location. Please try again.',
+        distanceFromRoute: 0
       });
     }
   };
@@ -545,16 +1483,22 @@ const OfferRide2: React.FC = () => {
         stopId: newStopId
       };
       
-      const updatedStops = [...stopPoints];
-      const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
-      updatedStops.splice(destinationIndex, 0, newStop);
+      // Use setState callback to ensure immediate update
+      setStopPoints(prevStops => {
+        const updatedStops = [...prevStops];
+        const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
+        updatedStops.splice(destinationIndex, 0, newStop);
+        
+        // Reassign stop IDs
+        const reassignedStops = updatedStops.map((stop, index) => ({
+          ...stop,
+          stopId: index + 1
+        }));
+        
+        console.log('Map click stop added:', reassignedStops);
+        return reassignedStops;
+      });
       
-      const reassignedStops = updatedStops.map((stop, index) => ({
-        ...stop,
-        stopId: index + 1
-      }));
-      
-      setStopPoints(reassignedStops);
       setAddStopModal({ 
         isOpen: false, 
         position: null, 
@@ -565,19 +1509,23 @@ const OfferRide2: React.FC = () => {
       setIsAddStopMode(false);
       
       setToast({ 
-        message: '✅ Stop added successfully!', 
+        message: 'Stop added successfully!', 
         type: 'success' 
       });
       
+      // Recalculate routes
       setIsRecalculating(true);
       setTimeout(() => {
-        loadRoutes(reassignedStops);
+        setStopPoints(prev => {
+          loadRoutes(prev);
+          return prev;
+        });
         setIsRecalculating(false);
       }, 500);
     } catch (error) {
       console.error('Error adding stop:', error);
       setToast({ 
-        message: '❌ Failed to add stop', 
+        message: 'Failed to add stop', 
         type: 'error' 
       });
     }
@@ -586,7 +1534,7 @@ const OfferRide2: React.FC = () => {
   const removeStop = (stopId: number) => {
     if (isFullCar) {
       setToast({ 
-        message: '❌ Cannot modify stops for full car rides', 
+        message: 'Cannot modify stops for full car rides', 
         type: 'error' 
       });
       return;
@@ -596,29 +1544,38 @@ const OfferRide2: React.FC = () => {
     
     if (stopToRemove?.type === 'ORIGIN' || stopToRemove?.type === 'DESTINATION') {
       setToast({ 
-        message: `❌ Cannot remove ${stopToRemove.type}`, 
+        message: `Cannot remove ${stopToRemove.type}`, 
         type: 'error' 
       });
       return;
     }
     
-    const newStops = stopPoints.filter(stop => stop.stopId !== stopId);
-    
-    const reassignedStops = newStops.map((stop, index) => ({
-      ...stop,
-      stopId: index + 1
-    }));
-    
-    setStopPoints(reassignedStops);
+    // Use setState callback to ensure immediate update
+    setStopPoints(prevStops => {
+      const newStops = prevStops.filter(stop => stop.stopId !== stopId);
+      
+      // Reassign stop IDs
+      const reassignedStops = newStops.map((stop, index) => ({
+        ...stop,
+        stopId: index + 1
+      }));
+      
+      console.log('Stop removed:', reassignedStops);
+      return reassignedStops;
+    });
     
     setToast({ 
-      message: 'ℹ️ Stop removed successfully', 
+      message: 'Stop removed successfully', 
       type: 'info' 
     });
     
+    // Recalculate routes
     setIsRecalculating(true);
     setTimeout(() => {
-      loadRoutes(reassignedStops);
+      setStopPoints(prev => {
+        loadRoutes(prev);
+        return prev;
+      });
       setIsRecalculating(false);
     }, 500);
   };
@@ -636,7 +1593,7 @@ const OfferRide2: React.FC = () => {
     const farePerKm = parseFloat(rideData.settings?.fare_per_km_car || '12');
     const seats = rideData.seats || 1;
     
-    const calculatedPrice = Math.round(Math.max(10, totalDistanceKm * farePerKm * seats));
+    const calculatedPrice = Math.round((totalDistanceKm * farePerKm / seats) / 10) * 10;
     
     const fareCombinations = [];
     
@@ -652,13 +1609,16 @@ const OfferRide2: React.FC = () => {
           segmentDistance += routeSegments[k]?.distance || 0;
         }
         
-        const calculatedFare = segmentDistance * farePerKm * seats;
-        const fare = Math.round(Math.max(10, calculatedFare));
+        const calculatedFare = segmentDistance * farePerKm / seats;
+        const fare = Math.round(Math.max(10, calculatedFare) / 10) * 10;
         
         fareCombinations.push({
           from_stop_order: fromStop.stopId,
           to_stop_order: toStop.stopId,
           fare: fare,
+          distance: segmentDistance,
+          fare_per_km: farePerKm,
+          seats: seats
         });
       }
     }
@@ -668,16 +1628,17 @@ const OfferRide2: React.FC = () => {
       stopPoints: sortedStops,
       stops: sortedStops.filter(stop => stop.type === 'STOP'),
       fareCombinations,
-      pricePerSeat: Math.round(calculatedPrice / seats),
+      pricePerSeat: calculatedPrice,
       totalDistance: totalDistanceKm,
       totalDuration,
       selectedRoute: selectedRouteData,
       farePerKm: farePerKm,
       routeSegments: routeSegments,
       isFullCar: isFullCar,
+      isNegotiable: rideData.isNegotiable,
+      seatCount: seats
     };
 
-    console.log('Navigating to OfferRide3 with stopPoints:', sortedStops);
     navigate('/offer-ride3', { state: updatedRideData });
   };
 
@@ -739,7 +1700,7 @@ const OfferRide2: React.FC = () => {
     } catch (error) {
       console.error('Error recalculating route:', error);
       setToast({ 
-        message: '❌ Failed to recalculate route', 
+        message: 'Failed to recalculate route', 
         type: 'error' 
       });
     } finally {
@@ -747,67 +1708,24 @@ const OfferRide2: React.FC = () => {
     }
   };
 
-  const decodePolyline = (encoded: string): google.maps.LatLngLiteral[] => {
-    if (!encoded) return [];
-
-    const points: google.maps.LatLngLiteral[] = [];
-    let index = 0;
-    const len = encoded.length;
-    let lat = 0;
-    let lng = 0;
-
-    while (index < len) {
-      let b: number;
-      let shift = 0;
-      let result = 0;
-      
-      do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      
-      const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
-      lat += dlat;
-
-      shift = 0;
-      result = 0;
-      
-      do {
-        b = encoded.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      
-      const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
-      lng += dlng;
-
-      points.push({ lat: lat * 1e-5, lng: lng * 1e-5 });
-    }
-    
-    return points;
-  };
-
-  const selectedRouteData = routes.find(r => r.id === selectedRoute);
-  const polylinePath = selectedRouteData?.polyline 
-    ? decodePolyline(selectedRouteData.polyline)
-    : [];
-
   const sortedStops = [...stopPoints].sort((a, b) => a.stopId - b.stopId);
   const fallbackPolylinePath = sortedStops.map(stop => ({ 
     lat: stop.lat, 
     lng: stop.lng 
   }));
 
+  const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
+  const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
+
   if (loadError) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background">
+      <div className="h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p className="text-foreground">Error loading Google Maps</p>
+          <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <p className="text-gray-800">Error loading Google Maps</p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg"
+            className="mt-3 px-3 py-1.5 bg-[#21409A] text-white rounded-lg hover:bg-[#1a357c]"
           >
             Retry
           </button>
@@ -818,10 +1736,10 @@ const OfferRide2: React.FC = () => {
 
   if (!isLoaded) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background">
+      <div className="h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-foreground">Loading Google Maps...</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#21409A] mx-auto mb-3"></div>
+          <p className="text-gray-800">Loading Google Maps...</p>
         </div>
       </div>
     );
@@ -829,13 +1747,13 @@ const OfferRide2: React.FC = () => {
 
   if (!rideData) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background">
+      <div className="h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-foreground">Loading ride data...</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#21409A] mx-auto mb-3"></div>
+          <p className="text-gray-800">Loading ride data...</p>
           <button
             onClick={() => navigate('/offer-ride1')}
-            className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg"
+            className="mt-3 px-3 py-1.5 bg-[#21409A] text-white rounded-lg hover:bg-[#1a357c]"
           >
             Go Back
           </button>
@@ -846,15 +1764,15 @@ const OfferRide2: React.FC = () => {
 
   // Full Car Toggle Card
   const renderFullCarToggle = () => (
-    <div className="bg-card rounded-xl p-4 border border-border mb-4">
+    <div className="bg-white rounded-lg p-3 border border-gray-200 mb-3">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isFullCar ? 'bg-primary' : 'bg-muted'}`}>
-            <Navigation size={20} className={isFullCar ? 'text-primary-foreground' : 'text-muted-foreground'} />
+        <div className="flex items-center gap-2">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isFullCar ? 'bg-[#21409A]' : 'bg-gray-100'}`}>
+            <Navigation size={16} className={isFullCar ? 'text-white' : 'text-gray-600'} />
           </div>
           <div>
-            <h3 className="font-medium text-foreground">Full Car (Private Ride)</h3>
-            <p className="text-xs text-muted-foreground">
+            <h3 className="font-medium text-gray-800 text-sm">Full Car (Private Ride)</h3>
+            <p className="text-xs text-gray-500">
               {isFullCar 
                 ? 'Direct ride without stops • Higher fare' 
                 : 'Shared ride with stops • Split fare'}
@@ -881,26 +1799,9 @@ const OfferRide2: React.FC = () => {
             }}
             className="sr-only peer"
           />
-          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#21409A]/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#21409A]"></div>
         </label>
       </div>
-      
-      {isFullCar && (
-        <div className="mt-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
-          <div className="flex items-start gap-2">
-            <Info size={16} className="text-primary mt-0.5" />
-            <div className="text-xs text-foreground">
-              <p className="font-medium mb-1">Full Car Mode Active:</p>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>No intermediate stops allowed</li>
-                <li>Direct route from pickup to destination</li>
-                <li>Single base fare (not split by segments)</li>
-                <li>Vehicle will be occupied exclusively</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 
@@ -908,9 +1809,9 @@ const OfferRide2: React.FC = () => {
   const renderRoutesScreen = () => (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex-shrink-0">
-        <h1 className="text-xl sm:text-2xl font-bold text-foreground">Available Routes</h1>
-        <p className="text-xs sm:text-sm text-muted-foreground mt-1 mb-4">
+      <div className="flex-shrink-0 mb-3">
+        <h1 className="text-lg font-bold text-gray-800">Available Routes</h1>
+        <p className="text-xs text-gray-500 mt-0.5">
           {isFullCar ? 'Full car route - No stops allowed' : 'Select the best route for your journey'}
         </p>
       </div>
@@ -919,18 +1820,18 @@ const OfferRide2: React.FC = () => {
       {renderFullCarToggle()}
 
       {/* Route Controls */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-3">
         <button
           onClick={() => recalculateRoute(false)}
           disabled={isRecalculating}
-          className="flex-1 py-2 text-sm bg-primary/10 text-primary rounded-lg hover:bg-primary/20 disabled:opacity-50"
+          className="flex-1 py-2 text-xs bg-blue-50 text-[#21409A] rounded-lg hover:bg-blue-100 disabled:opacity-50"
         >
           Fastest
         </button>
         <button
           onClick={() => recalculateRoute(true)}
           disabled={isRecalculating}
-          className="flex-1 py-2 text-sm bg-primary/10 text-primary rounded-lg hover:bg-primary/20 disabled:opacity-50"
+          className="flex-1 py-2 text-xs bg-blue-50 text-[#21409A] rounded-lg hover:bg-blue-100 disabled:opacity-50"
         >
           No Tolls
         </button>
@@ -941,60 +1842,60 @@ const OfferRide2: React.FC = () => {
         {isLoading ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-foreground">Finding available routes...</p>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#21409A] mx-auto mb-2"></div>
+              <p className="text-gray-800 text-sm">Finding available routes...</p>
             </div>
           </div>
         ) : routes.length > 0 ? (
-          <div className="space-y-3 pb-4">
+          <div className="space-y-2 pb-2">
             {routes.map((route) => (
               <div
                 key={route.id}
                 onClick={() => handleRouteSelect(route.id)}
-                className={`p-4 border rounded-xl cursor-pointer transition-all ${
+                className={`p-3 border rounded-lg cursor-pointer transition-all ${
                   selectedRoute === route.id
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-primary/50'
+                    ? 'border-[#21409A] bg-[#21409A]/5'
+                    : 'border-gray-200 hover:border-[#21409A]/50 hover:bg-[#21409A]/2'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     {/* Route Selection Radio */}
                     <div
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        selectedRoute === route.id ? 'border-primary' : 'border-muted-foreground/40'
+                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
+                        selectedRoute === route.id ? 'border-[#21409A]' : 'border-gray-300'
                       }`}
                     >
                       {selectedRoute === route.id && (
-                        <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+                        <div className="w-2 h-2 rounded-full bg-[#21409A]" />
                       )}
                     </div>
 
                     {/* Route Info */}
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-base sm:text-lg font-bold text-foreground">{route.duration}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-bold text-gray-800">{route.duration}</span>
                         <span
-                          className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                          className={`px-1.5 py-0.5 text-xs font-medium rounded-full ${
                             route.hasTolls
-                              ? 'bg-primary/10 text-primary'
-                              : 'bg-green-500/10 text-green-600'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-green-100 text-green-700'
                           }`}
                         >
                           {route.hasTolls ? 'With tolls' : 'No tolls'}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs sm:text-sm text-muted-foreground">{route.distance}</span>
-                        <span className="text-xs text-muted-foreground">•</span>
-                        <span className="text-xs text-primary font-medium">
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-xs text-gray-600">{route.distance}</span>
+                        <span className="text-xs text-gray-300">•</span>
+                        <span className="text-xs text-[#21409A] font-medium">
                           Route #{route.id}
                         </span>
                       </div>
                     </div>
                   </div>
                   {isFullCar && (
-                    <span className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-full">
+                    <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full">
                       Full Car
                     </span>
                   )}
@@ -1005,9 +1906,9 @@ const OfferRide2: React.FC = () => {
         ) : (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
-              <Route className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-foreground">No routes found</p>
-              <p className="text-sm text-muted-foreground mt-1">
+              <Route className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+              <p className="text-gray-800 text-sm">No routes found</p>
+              <p className="text-xs text-gray-500 mt-0.5">
                 Please check your pickup and drop locations
               </p>
             </div>
@@ -1016,7 +1917,7 @@ const OfferRide2: React.FC = () => {
       </div>
 
       {/* Continue Button */}
-      <div className="flex-shrink-0 pt-4 border-t border-border">
+      <div className="flex-shrink-0 pt-3 border-t border-gray-200">
         <button
           onClick={() => {
             if (selectedRoute) {
@@ -1024,30 +1925,24 @@ const OfferRide2: React.FC = () => {
             }
           }}
           disabled={isLoading || routes.length === 0 || !selectedRoute || isRecalculating}
-          className={`w-full py-3.5 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
+          className={`w-full py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${
             !isLoading && routes.length > 0 && selectedRoute && !isRecalculating
-              ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-              : 'bg-muted text-muted-foreground cursor-not-allowed'
+              ? 'bg-[#21409A] text-white hover:bg-[#1a357c]'
+              : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
         >
           {isRecalculating ? (
             <>
-              <RefreshCw size={16} className="animate-spin" />
-              Recalculating...
+              <RefreshCw size={14} className="animate-spin" />
+              <span className="text-sm">Recalculating...</span>
             </>
           ) : (
             <>
-              <span className="text-sm sm:text-base">{isFullCar ? 'Continue to Vehicle Selection' : 'Continue to Add Stops'}</span>
-              <ChevronRight size={16} />
+              <span className="text-sm">{isFullCar ? 'Continue to Vehicle Selection' : 'Continue to Add Stops'}</span>
+              <ChevronRight size={14} />
             </>
           )}
         </button>
-        
-        {isRecalculating && (
-          <div className="text-center mt-2 text-xs text-muted-foreground">
-            Updating route information...
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1056,23 +1951,23 @@ const OfferRide2: React.FC = () => {
   const renderStopsScreen = () => (
     <div className="h-full flex flex-col">
       {/* Header with Back Button */}
-      <div className="flex-shrink-0">
-        <div className="flex items-center gap-2 mb-4">
+      <div className="flex-shrink-0 mb-3">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => setCurrentScreen('routes')}
-            className="p-1.5 hover:bg-accent rounded-lg transition-colors"
+            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
             aria-label="Go back to routes"
           >
-            <ArrowLeft size={18} className="text-foreground" />
+            <ArrowLeft size={16} className="text-gray-800" />
           </button>
           <div>
-            <h1 className="text-lg sm:text-xl font-bold text-foreground">
+            <h1 className="text-lg font-bold text-gray-800">
               {isFullCar ? 'Full Car Ride' : 'Add Stops'}
             </h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">
+            <p className="text-xs text-gray-500">
               {isFullCar 
                 ? 'Direct ride without intermediate stops' 
-                : 'Add intermediate stops to your route'}
+                : 'Add stops within 50km of the selected route'}
             </p>
           </div>
         </div>
@@ -1083,46 +1978,32 @@ const OfferRide2: React.FC = () => {
 
       {/* If Full Car, show info message instead of stop controls */}
       {isFullCar ? (
-        <div className="mb-4 p-4 bg-primary/10 border border-primary/20 rounded-lg">
-          <div className="flex items-start gap-3">
-            <Info size={20} className="text-primary mt-0.5 flex-shrink-0" />
+        <div className="mb-3 p-2.5 bg-blue-50 border border-blue-100 rounded-lg">
+          <div className="flex items-start gap-2">
+            <Info size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
             <div>
-              <h3 className="font-medium text-foreground mb-1">Full Car Mode</h3>
-              <p className="text-sm text-muted-foreground">
+              <h3 className="font-medium text-gray-800 text-sm mb-0.5">Full Car Mode</h3>
+              <p className="text-xs text-gray-600">
                 This is a private ride. No intermediate stops are allowed. 
                 The ride will go directly from pickup to destination with a single base fare.
               </p>
-              <div className="mt-3 p-2 bg-white/50 border border-border rounded text-xs">
-                <div className="flex items-center justify-between">
-                  <span>Pickup:</span>
-                  <span className="font-medium truncate max-w-[100px]">{stopPoints.find(s => s.type === 'ORIGIN')?.name}</span>
-                </div>
-                <div className="flex items-center justify-between mt-1">
-                  <span>Destination:</span>
-                  <span className="font-medium truncate max-w-[100px]">{stopPoints.find(s => s.type === 'DESTINATION')?.name}</span>
-                </div>
-                <div className="flex items-center justify-between mt-1">
-                  <span>Distance:</span>
-                  <span className="font-medium">{selectedRouteData?.distance || 'Calculating...'}</span>
-                </div>
-              </div>
             </div>
           </div>
         </div>
       ) : (
         <>
           {/* Stop Controls */}
-          <div className="flex flex-col sm:flex-row gap-2 mb-4 flex-shrink-0">
+          <div className="flex flex-col sm:flex-row gap-1.5 mb-3 flex-shrink-0">
             <button
               onClick={handleOneClickAddStop}
-              disabled={isRecalculating || isFullCar}
-              className={`flex-1 py-2.5 text-sm rounded-lg flex items-center justify-center gap-2 ${
-                isFullCar 
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                  : 'bg-green-500 text-white hover:bg-green-600'
+              disabled={isRecalculating || isFullCar || polylinePath.length === 0}
+              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${
+                isFullCar || polylinePath.length === 0
+                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+                  : 'bg-green-600 text-white hover:bg-green-700'
               } disabled:opacity-50`}
             >
-              <Plus size={14} />
+              <Plus size={12} />
               <span>Quick Add</span>
             </button>
             
@@ -1138,32 +2019,75 @@ const OfferRide2: React.FC = () => {
                   });
                   return;
                 }
+                if (polylinePath.length === 0) {
+                  setToast({ 
+                    message: 'Please select a route first', 
+                    type: 'error' 
+                  });
+                  return;
+                }
                 setIsAddStopMode(true);
                 setToast({ 
-                  message: 'Click on map to add a stop', 
+                  message: 'Click on map along the route line to add a stop (within 50km)', 
                   type: 'info' 
                 });
               }}
-              disabled={isRecalculating || isAddStopMode}
-              className={`flex-1 py-2.5 text-sm rounded-lg flex items-center justify-center gap-2 ${
+              disabled={isRecalculating || isAddStopMode || polylinePath.length === 0}
+              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${
                 isAddStopMode
                   ? 'bg-amber-500 text-white'
-                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  : polylinePath.length === 0
+                  ? 'bg-gray-200 text-gray-500'
+                  : 'bg-[#21409A] text-white hover:bg-[#1a357c]'
               } disabled:opacity-50`}
             >
-              <Plus size={14} />
+              <Plus size={12} />
               <span>Add on Map</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (polylinePath.length === 0) {
+                  setToast({ 
+                    message: 'Please select a route first', 
+                    type: 'error' 
+                  });
+                  return;
+                }
+                setManualSearchModal({ isOpen: true });
+              }}
+              disabled={isRecalculating || isFullCar || polylinePath.length === 0}
+              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${
+                isFullCar || polylinePath.length === 0
+                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+                  : 'bg-[#21409A] text-white hover:bg-[#1a357c]'
+              } disabled:opacity-50`}
+            >
+              <Search size={12} />
+              <span>Search Cities</span>
             </button>
           </div>
 
           {isAddStopMode && (
-            <div className="mb-3 flex-shrink-0">
+            <div className="mb-2 flex-shrink-0">
               <button
                 onClick={() => setIsAddStopMode(false)}
-                className="w-full py-2 text-sm bg-muted text-foreground rounded-lg hover:bg-accent"
+                className="w-full py-1.5 text-xs bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200"
               >
                 Cancel Add Stop Mode
               </button>
+            </div>
+          )}
+          
+          {/* Route Info */}
+          {polylinePath.length > 0 && (
+            <div className="mb-2 flex-shrink-0 p-2 bg-blue-50 border border-blue-100 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Info size={12} className="text-blue-600" />
+                <div className="text-xs text-blue-700">
+                  <span className="font-medium">Note:</span> Stops must be within 50km of the selected route line
+                </div>
+              </div>
             </div>
           )}
         </>
@@ -1171,35 +2095,30 @@ const OfferRide2: React.FC = () => {
 
       {/* Stops List */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="bg-card rounded-lg p-3 border border-border">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-foreground">
+        <div className="bg-white rounded-lg p-2 border border-gray-200">
+          <div className="flex items-center justify-between mb-1.5">
+            <h3 className="text-sm font-medium text-gray-800">
               {isFullCar ? 'Route Points' : `All Stops (${stopPoints.length})`}
             </h3>
-            {!isFullCar && (
-              <div className="text-xs text-muted-foreground hidden sm:block">
-                Drag stops on map
-              </div>
-            )}
           </div>
           
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {stopPoints
               .sort((a, b) => a.stopId - b.stopId)
               .map((stop) => (
                 <div
                   key={stop.stopId}
-                  className={`flex items-center justify-between p-2 rounded-lg ${
+                  className={`flex items-center justify-between p-1.5 rounded-lg ${
                     stop.type === 'ORIGIN' ? 'bg-green-50' :
                     stop.type === 'DESTINATION' ? 'bg-red-50' :
                     'bg-blue-50'
                   }`}
                 >
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${
-                      stop.type === 'ORIGIN' ? 'bg-green-500 text-white' :
-                      stop.type === 'DESTINATION' ? 'bg-red-500 text-white' :
-                      'bg-blue-500 text-white'
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${
+                      stop.type === 'ORIGIN' ? 'bg-green-600 text-white' :
+                      stop.type === 'DESTINATION' ? 'bg-red-600 text-white' :
+                      'bg-[#21409A] text-white'
                     }`}>
                       {stop.type === 'ORIGIN' && 'P'}
                       {stop.type === 'DESTINATION' && 'D'}
@@ -1207,18 +2126,11 @@ const OfferRide2: React.FC = () => {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1">
-                        <span className="text-sm font-medium text-foreground truncate">
+                        <span className="text-xs font-medium text-gray-800 truncate">
                           {stop.name}
                         </span>
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-                          stop.type === 'ORIGIN' ? 'bg-green-100 text-green-800' :
-                          stop.type === 'DESTINATION' ? 'bg-red-100 text-red-800' :
-                          'bg-blue-100 text-blue-800'
-                        }`}>
-                          {stop.type.charAt(0)}
-                        </span>
                       </div>
-                      <div className="text-xs text-muted-foreground truncate">
+                      <div className="text-xs text-gray-500 truncate">
                         {stop.address}
                       </div>
                     </div>
@@ -1226,21 +2138,21 @@ const OfferRide2: React.FC = () => {
                   {stop.type === 'STOP' && !isFullCar && (
                     <button
                       onClick={() => removeStop(stop.stopId)}
-                      className="p-1 hover:bg-red-500/10 rounded transition-colors flex-shrink-0 ml-2"
+                      className="p-0.5 hover:bg-red-50 rounded transition-colors flex-shrink-0 ml-1"
                       aria-label="Remove stop"
                     >
-                      <Trash2 size={14} className="text-red-500" />
+                      <Trash2 size={12} className="text-red-500" />
                     </button>
                   )}
                 </div>
               ))}
 
             {!isFullCar && stopPoints.filter(stop => stop.type === 'STOP').length === 0 && (
-              <div className="text-center py-4 text-muted-foreground border border-dashed border-border rounded-lg">
-                <MapPin className="w-6 h-6 mx-auto mb-1 opacity-50" />
-                <p className="text-sm">No intermediate stops</p>
+              <div className="text-center py-3 text-gray-500 border border-dashed border-gray-300 rounded-lg">
+                <MapPin className="w-5 h-5 mx-auto mb-1 opacity-50" />
+                <p className="text-xs">No intermediate stops</p>
                 <p className="text-xs mt-0.5">
-                  Add stops to customize route
+                  Add stops within 50km of the route line
                 </p>
               </div>
             )}
@@ -1249,33 +2161,28 @@ const OfferRide2: React.FC = () => {
       </div>
 
       {/* Continue to Next Button */}
-      <div className="flex-shrink-0 pt-3 border-t border-border">
+      <div className="flex-shrink-0 pt-2 border-t border-gray-200">
         <button
           onClick={handleNext}
           disabled={isRecalculating}
-          className={`w-full py-3.5 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
+          className={`w-full py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${
             !isRecalculating
-              ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-              : 'bg-muted text-muted-foreground cursor-not-allowed'
+              ? 'bg-[#21409A] text-white hover:bg-[#1a357c]'
+              : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
         >
           {isRecalculating ? (
             <>
-              <RefreshCw size={16} className="animate-spin" />
-              Updating route...
+              <RefreshCw size={14} className="animate-spin" />
+              <span className="text-sm">Updating route...</span>
             </>
           ) : (
             <>
-              <span className="text-sm sm:text-base">Continue to Vehicle Selection</span>
-              <ChevronRight size={16} />
+              <span className="text-sm">Continue to Vehicle Selection</span>
+              <ChevronRight size={14} />
             </>
           )}
         </button>
-        
-        <div className="text-center mt-2 text-xs text-muted-foreground">
-          {isFullCar && <span className="text-primary font-medium">Full Car • </span>}
-          Route #{selectedRoute} • {selectedRouteData?.distance} • {selectedRouteData?.duration}
-        </div>
       </div>
     </div>
   );
@@ -1284,24 +2191,24 @@ const OfferRide2: React.FC = () => {
   const MobileFAB = () => (
     <button
       onClick={() => setMapExpanded(!mapExpanded)}
-      className="fixed bottom-20 right-4 z-40 p-3 bg-primary text-white rounded-full shadow-lg flex items-center justify-center"
+      className="fixed bottom-16 right-3 z-40 p-2.5 bg-[#21409A] text-white rounded-full shadow-lg flex items-center justify-center"
       aria-label={mapExpanded ? "Show options" : "Expand map"}
     >
-      {mapExpanded ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+      {mapExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
     </button>
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-background flex flex-col">
+    <div className="h-screen overflow-hidden bg-gray-50 flex flex-col">
       <Navbar />
 
       {/* Back Button */}
       <button
         onClick={() => navigate(-1)}
-        className="fixed top-20 left-4 z-20 p-2 bg-card hover:bg-accent rounded-full transition-colors border border-border"
+        className="fixed top-16 left-3 z-20 p-1.5 bg-white hover:bg-gray-100 rounded-full transition-colors border border-gray-300"
         aria-label="Go back to previous page"
       >
-        <ArrowLeft size={20} className="text-foreground" />
+        <ArrowLeft size={18} className="text-gray-800" />
       </button>
 
       {/* Toast Notification */}
@@ -1310,6 +2217,20 @@ const OfferRide2: React.FC = () => {
           message={toast.message}
           type={toast.type}
           onClose={() => setToast(null)}
+        />
+      )}
+
+      {/* Manual Search Modal */}
+      {origin && destination && (
+        <ManualStopSearchModal
+          isOpen={manualSearchModal.isOpen}
+          onClose={() => setManualSearchModal({ isOpen: false })}
+          onConfirm={handleManualSearchStop}
+          origin={{ lat: origin.lat, lng: origin.lng }}
+          destination={{ lat: destination.lat, lng: destination.lng }}
+          isFullCar={isFullCar}
+          polylinePoints={polylinePath}
+          onSearchPlaces={handleSearchPlaces}
         />
       )}
 
@@ -1334,29 +2255,44 @@ const OfferRide2: React.FC = () => {
         isFullCar={isFullCar}
       />
 
-      <div className="flex-1 pt-16 overflow-hidden">
+      {/* Invalid Stop Modal */}
+      <InvalidStopModal
+        isOpen={invalidStopModal.isOpen}
+        onClose={() => setInvalidStopModal({ 
+          isOpen: false, 
+          position: null, 
+          errorMessage: '', 
+          distanceFromRoute: 0 
+        })}
+        stopLocation={invalidStopModal.position || { lat: 0, lng: 0 }}
+        polylinePoints={polylinePath}
+        errorMessage={invalidStopModal.errorMessage}
+        distanceFromRoute={invalidStopModal.distanceFromRoute}
+      />
+
+      <div className="flex-1 pt-14 overflow-hidden">
         {/* Responsive Layout */}
-        <div className={`h-full ${isMobile ? (mapExpanded ? 'hidden' : 'block') : 'max-w-6xl mx-auto px-4 py-4'}`}>
+        <div className={`h-full ${isMobile ? (mapExpanded ? 'hidden' : 'block') : 'max-w-6xl mx-auto px-3 py-3'}`}>
           {/* Mobile - Full width panel when map is not expanded */}
           {isMobile ? (
-            <div className="h-full bg-card">
-              <div className="p-4 h-full">
+            <div className="h-full bg-white">
+              <div className="p-3 h-full">
                 {currentScreen === 'routes' ? renderRoutesScreen() : renderStopsScreen()}
               </div>
             </div>
           ) : (
             /* Desktop/Tablet - Responsive grid */
-            <div className={`grid gap-4 h-full ${isTablet ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
+            <div className={`grid gap-3 h-full ${isTablet ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
               {/* Options Panel */}
               <div className={`${isTablet ? (mapExpanded ? 'hidden' : 'block') : 'h-full'}`}>
-                <div className="bg-card rounded-xl p-4 border border-border h-full">
+                <div className="bg-white rounded-lg p-3 border border-gray-200 h-full">
                   {currentScreen === 'routes' ? renderRoutesScreen() : renderStopsScreen()}
                 </div>
               </div>
 
               {/* Map Panel */}
               <div className={`${isTablet ? (mapExpanded ? 'col-span-2' : 'hidden') : 'h-full'}`}>
-                <div ref={mapContainerRef} className="h-full rounded-xl overflow-hidden border border-border bg-muted relative">
+                <div ref={mapContainerRef} className="h-full rounded-lg overflow-hidden border border-gray-300 bg-gray-100 relative">
                   {isLoaded && (
                     <>
                       <GoogleMap
@@ -1376,6 +2312,11 @@ const OfferRide2: React.FC = () => {
                               featureType: 'poi',
                               elementType: 'labels',
                               stylers: [{ visibility: 'off' }]
+                            },
+                            {
+                              featureType: 'transit',
+                              elementType: 'labels.icon',
+                              stylers: [{ visibility: 'off' }]
                             }
                           ]
                         }}
@@ -1387,29 +2328,55 @@ const OfferRide2: React.FC = () => {
                             position={{ lat: stop.lat, lng: stop.lng }}
                             draggable={stop.type === 'STOP' && !isFullCar}
                             onDragStart={() => setActiveStopIndex(stop.stopId)}
-                            onDragEnd={(e) => {
+                            onDragEnd={async (e) => {
                               if (!e.latLng || isFullCar) return;
                               const lat = e.latLng.lat();
                               const lng = e.latLng.lng();
                               
-                              const origin = stopPoints.find(s => s.type === 'ORIGIN');
-                              const destination = stopPoints.find(s => s.type === 'DESTINATION');
+                              // Validate the new position is on the polyline route
+                              const validation = validateStopOnPolylineRoute(
+                                { lat, lng },
+                                polylinePath,
+                                50
+                              );
                               
-                              if (!origin || !destination || stop.type === 'ORIGIN' || stop.type === 'DESTINATION') {
+                              if (!validation.isValid) {
+                                setInvalidStopModal({
+                                  isOpen: true,
+                                  position: { lat, lng },
+                                  errorMessage: validation.message,
+                                  distanceFromRoute: validation.distanceFromRoute || 0
+                                });
                                 return;
                               }
                               
-                              const updatedStops = stopPoints.map(s => 
-                                s.stopId === stop.stopId 
-                                  ? { ...s, lat, lng }
-                                  : s
-                              );
-                              setStopPoints(updatedStops);
+                              // Get accurate name for new location
+                              const accurateName = await getAccurateLocationName(lat, lng);
+                              
+                              setStopPoints(prevStops => {
+                                const updatedStops = prevStops.map(s => 
+                                  s.stopId === stop.stopId 
+                                    ? { 
+                                        ...s, 
+                                        lat, 
+                                        lng,
+                                        name: accurateName.name,
+                                        address: accurateName.address
+                                      }
+                                    : s
+                                );
+                                console.log('Stop dragged and updated:', updatedStops);
+                                return updatedStops;
+                              });
+                              
                               setActiveStopIndex(null);
                               
                               setIsRecalculating(true);
                               setTimeout(() => {
-                                loadRoutes(updatedStops);
+                                setStopPoints(prev => {
+                                  loadRoutes(prev);
+                                  return prev;
+                                });
                                 setIsRecalculating(false);
                               }, 500);
                             }}
@@ -1417,29 +2384,29 @@ const OfferRide2: React.FC = () => {
                               path: google.maps.SymbolPath.CIRCLE,
                               fillColor: stop.type === 'ORIGIN' ? '#10B981' :
                                         stop.type === 'DESTINATION' ? '#EF4444' :
-                                        activeStopIndex === stop.stopId ? '#8B5CF6' : '#3B82F6',
+                                        activeStopIndex === stop.stopId ? '#8B5CF6' : '#21409A',
                               fillOpacity: 1,
                               strokeColor: '#FFFFFF',
                               strokeWeight: 2,
-                              scale: stop.type === 'STOP' ? 7 : 9
+                              scale: stop.type === 'STOP' ? 6 : 8
                             }}
                             label={{
                               text: stop.type === 'ORIGIN' ? 'P' : 
                                     stop.type === 'DESTINATION' ? 'D' : 
                                     (stop.stopId - 1).toString(),
                               color: '#FFFFFF',
-                              fontSize: stop.type === 'STOP' ? '10px' : '12px',
+                              fontSize: stop.type === 'STOP' ? '9px' : '11px',
                               fontWeight: 'bold'
                             }}
                           />
                         ))}
 
-                        {/* Route Polyline */}
+                        {/* Route Polyline with highlight effect */}
                         <Polyline
                           path={polylinePath.length > 0 ? polylinePath : fallbackPolylinePath}
                           options={{
-                            strokeColor: isFullCar ? '#8B5CF6' : '#3B82F6',
-                            strokeOpacity: 0.7,
+                            strokeColor: isFullCar ? '#8B5CF6' : '#21409A',
+                            strokeOpacity: 0.8,
                             strokeWeight: isFullCar ? 4 : 3,
                             geodesic: true
                           }}
@@ -1449,39 +2416,42 @@ const OfferRide2: React.FC = () => {
                   )}
 
                   {/* Map Controls */}
-                  <div className="absolute top-3 left-3 z-10 bg-card/95 backdrop-blur-sm px-3 py-1.5 rounded-lg text-sm font-medium text-foreground border border-border shadow-sm max-w-[80%]">
+                  <div className="absolute top-2 left-2 z-10 bg-white/95 backdrop-blur-sm px-2 py-1 rounded text-sm font-medium text-gray-800 border border-gray-300 shadow-sm max-w-[70%]">
                     <div className="flex items-center gap-1">
-                      <Navigation size={12} className={isFullCar ? "text-purple-500" : "text-primary"} />
-                      <span className="truncate">
-                        {stopPoints.find(s => s.type === 'ORIGIN')?.name || 'Origin'} → 
-                        {stopPoints.find(s => s.type === 'DESTINATION')?.name || 'Destination'}
+                      <Navigation size={12} className={isFullCar ? "text-purple-600" : "text-[#21409A]"} />
+                      <span className="truncate text-xs">
+                        {origin?.name || 'Origin'} → 
+                        {destination?.name || 'Destination'}
                       </span>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1">
+                    <div className="text-xs text-gray-600 mt-0.5">
                       {isFullCar ? 'Full Car • No Stops' : `${stopPoints.filter(stop => stop.type === 'STOP').length} intermediate stops`}
                     </div>
                     {selectedRouteData && (
-                      <div className={`text-xs font-medium mt-1 ${isFullCar ? 'text-purple-600' : 'text-primary'}`}>
+                      <div className={`text-xs font-medium mt-0.5 ${isFullCar ? 'text-purple-600' : 'text-[#21409A]'}`}>
                         {selectedRouteData.distance} • {selectedRouteData.duration}
+                      </div>
+                    )}
+                    {!isFullCar && polylinePath.length > 0 && (
+                      <div className="text-xs text-blue-600 font-medium mt-0.5">
+                        ✓ Stops must be within 50km of route
                       </div>
                     )}
                   </div>
 
                   {/* Map Mode Indicator */}
                   {isAddStopMode && !isFullCar && (
-                    <div className="absolute top-3 right-3 z-10 bg-amber-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm animate-pulse">
+                    <div className="absolute top-2 right-2 z-10 bg-amber-500 text-white px-2 py-1 rounded text-sm font-medium shadow-sm animate-pulse">
                       <Map size={12} className="inline mr-1" />
-                      <span className="hidden sm:inline">Click to add stop</span>
-                      <span className="sm:hidden">Add stop</span>
+                      <span className="text-xs">Click route to add stop</span>
                     </div>
                   )}
 
                   {/* Full Car Indicator */}
                   {isFullCar && (
-                    <div className="absolute top-3 right-3 z-10 bg-purple-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm">
+                    <div className="absolute top-2 right-2 z-10 bg-purple-500 text-white px-2 py-1 rounded text-sm font-medium shadow-sm">
                       <Navigation size={12} className="inline mr-1" />
-                      <span className="hidden sm:inline">Full Car Mode</span>
-                      <span className="sm:hidden">Full Car</span>
+                      <span className="text-xs">Full Car</span>
                     </div>
                   )}
 
@@ -1489,31 +2459,11 @@ const OfferRide2: React.FC = () => {
                   {isTablet && mapExpanded && (
                     <button
                       onClick={() => setMapExpanded(false)}
-                      className="absolute top-3 left-3 z-10 p-2 bg-white rounded-full shadow-lg"
+                      className="absolute top-2 left-2 z-10 p-1.5 bg-white rounded-full shadow-lg"
                     >
-                      <ArrowLeft size={20} />
+                      <ArrowLeft size={18} />
                     </button>
                   )}
-
-                  {/* Map Legend */}
-                  <div className={`absolute bottom-3 left-3 z-10 bg-card/95 backdrop-blur-sm px-2 py-1.5 rounded-lg text-xs border border-border shadow-sm ${isMobile ? 'hidden' : 'block'}`}>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                        <span>Origin</span>
-                      </div>
-                      {!isFullCar && (
-                        <div className="flex items-center gap-1">
-                          <div className="w-2.5 h-2.5 rounded-full bg-blue-500"></div>
-                          <span>Stops</span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1">
-                        <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                        <span>Drop</span>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1554,29 +2504,55 @@ const OfferRide2: React.FC = () => {
                         position={{ lat: stop.lat, lng: stop.lng }}
                         draggable={stop.type === 'STOP' && !isFullCar}
                         onDragStart={() => setActiveStopIndex(stop.stopId)}
-                        onDragEnd={(e) => {
+                        onDragEnd={async (e) => {
                           if (!e.latLng || isFullCar) return;
                           const lat = e.latLng.lat();
                           const lng = e.latLng.lng();
                           
-                          const origin = stopPoints.find(s => s.type === 'ORIGIN');
-                          const destination = stopPoints.find(s => s.type === 'DESTINATION');
+                          // Validate the new position is on the polyline route
+                          const validation = validateStopOnPolylineRoute(
+                            { lat, lng },
+                            polylinePath,
+                            50
+                          );
                           
-                          if (!origin || !destination || stop.type === 'ORIGIN' || stop.type === 'DESTINATION') {
+                          if (!validation.isValid) {
+                            setInvalidStopModal({
+                              isOpen: true,
+                              position: { lat, lng },
+                              errorMessage: validation.message,
+                              distanceFromRoute: validation.distanceFromRoute || 0
+                            });
                             return;
                           }
                           
-                          const updatedStops = stopPoints.map(s => 
-                            s.stopId === stop.stopId 
-                              ? { ...s, lat, lng }
-                              : s
-                          );
-                          setStopPoints(updatedStops);
+                          // Get accurate name for new location
+                          const accurateName = await getAccurateLocationName(lat, lng);
+                          
+                          setStopPoints(prevStops => {
+                            const updatedStops = prevStops.map(s => 
+                              s.stopId === stop.stopId 
+                                ? { 
+                                    ...s, 
+                                    lat, 
+                                    lng,
+                                    name: accurateName.name,
+                                    address: accurateName.address
+                                  }
+                                : s
+                            );
+                            console.log('Mobile: Stop dragged and updated:', updatedStops);
+                            return updatedStops;
+                          });
+                          
                           setActiveStopIndex(null);
                           
                           setIsRecalculating(true);
                           setTimeout(() => {
-                            loadRoutes(updatedStops);
+                            setStopPoints(prev => {
+                              loadRoutes(prev);
+                              return prev;
+                            });
                             setIsRecalculating(false);
                           }, 500);
                         }}
@@ -1584,18 +2560,18 @@ const OfferRide2: React.FC = () => {
                           path: google.maps.SymbolPath.CIRCLE,
                           fillColor: stop.type === 'ORIGIN' ? '#10B981' :
                                     stop.type === 'DESTINATION' ? '#EF4444' :
-                                    activeStopIndex === stop.stopId ? '#8B5CF6' : '#3B82F6',
+                                    activeStopIndex === stop.stopId ? '#8B5CF6' : '#21409A',
                           fillOpacity: 1,
                           strokeColor: '#FFFFFF',
                           strokeWeight: 2,
-                          scale: stop.type === 'STOP' ? 7 : 9
+                          scale: stop.type === 'STOP' ? 6 : 8
                         }}
                         label={{
                           text: stop.type === 'ORIGIN' ? 'P' : 
                                 stop.type === 'DESTINATION' ? 'D' : 
                                 (stop.stopId - 1).toString(),
                           color: '#FFFFFF',
-                          fontSize: stop.type === 'STOP' ? '10px' : '12px',
+                          fontSize: stop.type === 'STOP' ? '9px' : '11px',
                           fontWeight: 'bold'
                         }}
                       />
@@ -1605,8 +2581,8 @@ const OfferRide2: React.FC = () => {
                     <Polyline
                       path={polylinePath.length > 0 ? polylinePath : fallbackPolylinePath}
                       options={{
-                        strokeColor: isFullCar ? '#8B5CF6' : '#3B82F6',
-                        strokeOpacity: 0.7,
+                        strokeColor: isFullCar ? '#8B5CF6' : '#21409A',
+                        strokeOpacity: 0.8,
                         strokeWeight: isFullCar ? 4 : 3,
                         geodesic: true
                       }}
@@ -1618,29 +2594,34 @@ const OfferRide2: React.FC = () => {
               {/* Mobile Map Controls */}
               <button
                 onClick={() => setMapExpanded(false)}
-                className="absolute top-4 left-4 z-10 p-2 bg-white rounded-full shadow-lg"
+                className="absolute top-3 left-3 z-10 p-1.5 bg-white rounded-full shadow-lg"
               >
-                <ArrowLeft size={20} />
+                <ArrowLeft size={18} />
               </button>
 
               {/* Mobile Route Info */}
-              <div className="absolute bottom-20 left-4 right-4 z-10 bg-white/95 backdrop-blur-sm p-3 rounded-lg shadow-lg border">
+              <div className="absolute bottom-16 left-3 right-3 z-10 bg-white/95 backdrop-blur-sm p-2 rounded-lg shadow-lg border">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">
-                      {stopPoints.find(s => s.type === 'ORIGIN')?.name} → 
-                      {stopPoints.find(s => s.type === 'DESTINATION')?.name}
+                    <div className="font-medium text-xs truncate">
+                      {origin?.name} → 
+                      {destination?.name}
                     </div>
-                    <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
+                    <div className="text-xs text-gray-600 mt-0.5 flex items-center gap-1.5">
                       <span>{selectedRouteData?.distance}</span>
                       <span>•</span>
                       <span>{selectedRouteData?.duration}</span>
                       {isFullCar && <span className="text-purple-600 font-medium">• Full Car</span>}
                     </div>
+                    {!isFullCar && (
+                      <div className="text-xs text-blue-600 font-medium mt-0.5">
+                        ✓ Stops must be within 50km of route
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => setMapExpanded(false)}
-                    className="ml-2 px-3 py-1.5 bg-primary text-white text-sm rounded-lg flex-shrink-0"
+                    className="ml-2 px-2 py-1 bg-[#21409A] text-white text-xs rounded-lg flex-shrink-0"
                   >
                     Options
                   </button>

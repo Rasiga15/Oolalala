@@ -32,6 +32,8 @@ const Contact: React.FC = () => {
   const [emailInput, setEmailInput] = useState('');
   const [isEditingMobile, setIsEditingMobile] = useState(false);
   const [isEditingEmail, setIsEditingEmail] = useState(false);
+  const [mobileError, setMobileError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
   
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -66,7 +68,10 @@ const Contact: React.FC = () => {
         setOriginalEmail(email);
         setEmailInput(email);
         
-        if (mobile && response.data.isMobileVerified) {
+        // Set active verification based on what needs to be verified
+        if (!response.data.isMobileVerified && mobile) {
+          setActiveVerification('mobile');
+        } else if (!response.data.isEmailVerified && email) {
           setActiveVerification('email');
         }
       } else {
@@ -128,17 +133,86 @@ const Contact: React.FC = () => {
     return `${clean.slice(0, 3)} ${clean.slice(3, 6)} ${clean.slice(6, 10)}`;
   };
 
+  // Validate mobile number
+  const validateMobileNumber = (number: string): boolean => {
+    const cleanNumber = number.replace(/\D/g, '');
+    
+    if (!cleanNumber) {
+      setMobileError('Mobile number is required');
+      return false;
+    }
+    
+    if (cleanNumber.length !== 10) {
+      setMobileError('Mobile number must be 10 digits');
+      return false;
+    }
+    
+    // Check if it starts with valid Indian mobile prefixes
+    const validPrefixes = ['6', '7', '8', '9'];
+    if (!validPrefixes.includes(cleanNumber.charAt(0))) {
+      setMobileError('Please enter a valid Indian mobile number');
+      return false;
+    }
+    
+    // Check if all digits are same (invalid number pattern)
+    if (/^(\d)\1{9}$/.test(cleanNumber)) {
+      setMobileError('Please enter a valid mobile number');
+      return false;
+    }
+    
+    setMobileError(null);
+    return true;
+  };
+
+  // Validate email
+  const validateEmail = (email: string): boolean => {
+    if (!email) {
+      setEmailError('Email address is required');
+      return false;
+    }
+    
+    // Basic email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setEmailError('Please enter a valid email address');
+      return false;
+    }
+    
+    // Check for common invalid email patterns
+    if (email.includes(' ')) {
+      setEmailError('Email should not contain spaces');
+      return false;
+    }
+    
+    if (email.length > 254) {
+      setEmailError('Email is too long');
+      return false;
+    }
+    
+    // Check domain
+    const domain = email.split('@')[1];
+    if (!domain || domain.length < 3) {
+      setEmailError('Invalid email domain');
+      return false;
+    }
+    
+    setEmailError(null);
+    return true;
+  };
+
   const handleVerifyMobile = async () => {
+    // Validate mobile before sending OTP
+    if (!validateMobileNumber(mobileInput)) {
+      return;
+    }
+
     try {
       setIsSendingOTP(true);
       
       const cleanMobile = mobileInput.replace(/\s/g, '');
-      if (cleanMobile.length !== 10) {
-        toast.error('Please enter a valid 10-digit mobile number');
-        return;
-      }
-
-      if (contactDetails.isMobileVerified) {
+      
+      // Don't send OTP if already verified
+      if (contactDetails.isMobileVerified && cleanMobile === originalMobileNumber) {
         toast.info('Mobile number is already verified');
         return;
       }
@@ -162,15 +236,16 @@ const Contact: React.FC = () => {
   };
 
   const handleVerifyEmail = async () => {
+    // Validate email before sending OTP
+    if (!validateEmail(emailInput)) {
+      return;
+    }
+
     try {
       setIsSendingOTP(true);
       
-      if (!emailInput || !emailInput.includes('@')) {
-        toast.error('Please enter a valid email address');
-        return;
-      }
-
-      if (contactDetails.isEmailVerified) {
+      // Don't send OTP if already verified
+      if (contactDetails.isEmailVerified && emailInput === originalEmail) {
         toast.info('Email is already verified');
         return;
       }
@@ -246,6 +321,7 @@ const Contact: React.FC = () => {
           await loadContactDetails();
           setOtp(['', '', '', '', '', '']);
           
+          // Check if email needs verification
           if (!contactDetails.isEmailVerified && emailInput) {
             setTimeout(() => {
               setActiveVerification('email');
@@ -280,8 +356,17 @@ const Contact: React.FC = () => {
       if (type === 'mobile') {
         const cleanMobile = mobileInput.replace(/\s/g, '');
         
-        if (cleanMobile.length !== 10) {
-          toast.error('Please enter a valid 10-digit mobile number');
+        // Validate mobile number
+        if (!validateMobileNumber(mobileInput)) {
+          setIsSaving(false);
+          return;
+        }
+
+        // Check if number is same as original and already verified
+        if (cleanMobile === originalMobileNumber && contactDetails.isMobileVerified) {
+          toast.info('This number is already verified');
+          setIsEditingMobile(false);
+          setIsSaving(false);
           return;
         }
 
@@ -292,15 +377,19 @@ const Contact: React.FC = () => {
         if (saveResponse.success) {
           setOriginalMobileNumber(cleanMobile);
           setIsEditingMobile(false);
+          setMobileError(null);
           toast.success('Mobile number saved successfully');
           
+          // Update local state
           setContactDetails(prev => ({
             ...prev,
             mobileNumber: cleanMobile,
-            isMobileVerified: false
+            // Reset verification if number changed
+            isMobileVerified: cleanMobile === originalMobileNumber ? prev.isMobileVerified : false
           }));
           
-          if (!contactDetails.isMobileVerified || cleanMobile !== originalMobileNumber) {
+          // If number changed or not verified, trigger verification
+          if (cleanMobile !== originalMobileNumber || !contactDetails.isMobileVerified) {
             setTimeout(async () => {
               setActiveVerification('mobile');
               await handleVerifyMobile();
@@ -310,8 +399,17 @@ const Contact: React.FC = () => {
           toast.error(saveResponse.error || 'Failed to save mobile number');
         }
       } else {
-        if (!emailInput.includes('@')) {
-          toast.error('Please enter a valid email address');
+        // Validate email
+        if (!validateEmail(emailInput)) {
+          setIsSaving(false);
+          return;
+        }
+
+        // Check if email is same as original and already verified
+        if (emailInput === originalEmail && contactDetails.isEmailVerified) {
+          toast.info('This email is already verified');
+          setIsEditingEmail(false);
+          setIsSaving(false);
           return;
         }
 
@@ -322,15 +420,19 @@ const Contact: React.FC = () => {
         if (saveResponse.success) {
           setOriginalEmail(emailInput);
           setIsEditingEmail(false);
+          setEmailError(null);
           toast.success('Email saved successfully');
           
+          // Update local state
           setContactDetails(prev => ({
             ...prev,
             email: emailInput,
-            isEmailVerified: false
+            // Reset verification if email changed
+            isEmailVerified: emailInput === originalEmail ? prev.isEmailVerified : false
           }));
           
-          if (!contactDetails.isEmailVerified || emailInput !== originalEmail) {
+          // If email changed or not verified, trigger verification
+          if (emailInput !== originalEmail || !contactDetails.isEmailVerified) {
             setTimeout(async () => {
               setActiveVerification('email');
               await handleVerifyEmail();
@@ -370,24 +472,74 @@ const Contact: React.FC = () => {
   };
 
   const handleMobileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\D/g, '');
-    if (value.length <= 10) {
-      setMobileInput(formatMobileNumber(value));
+    const value = e.target.value;
+    
+    // Allow only digits, backspace, delete, tab, arrow keys
+    if (/[^0-9\s]/.test(value) && !/Backspace|Delete|Tab|ArrowLeft|ArrowRight/.test(e.nativeEvent.type)) {
+      return;
+    }
+    
+    // Remove all non-digit characters for validation
+    const cleanValue = value.replace(/\D/g, '');
+    if (cleanValue.length <= 10) {
+      const formatted = formatMobileNumber(cleanValue);
+      setMobileInput(formatted);
+      
+      // Clear error when user starts typing
+      if (mobileError && cleanValue.length > 0) {
+        setMobileError(null);
+      }
     }
   };
 
   const handleEmailInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setEmailInput(e.target.value);
+    const value = e.target.value;
+    setEmailInput(value);
+    
+    // Clear error when user starts typing
+    if (emailError) {
+      setEmailError(null);
+    }
   };
 
   const handleCancelEdit = (type: 'mobile' | 'email') => {
     if (type === 'mobile') {
       setMobileInput(originalMobileNumber);
       setIsEditingMobile(false);
+      setMobileError(null);
     } else {
       setEmailInput(originalEmail || '');
       setIsEditingEmail(false);
+      setEmailError(null);
     }
+  };
+
+  // Function to check if verify button should be shown for mobile
+  const shouldShowVerifyMobileButton = () => {
+    // If no mobile number set, don't show verify button
+    if (!originalMobileNumber) return false;
+    
+    // If already verified, don't show verify button
+    if (contactDetails.isMobileVerified) return false;
+    
+    // If editing, don't show verify button (save button will be shown instead)
+    if (isEditingMobile) return false;
+    
+    return true;
+  };
+
+  // Function to check if verify button should be shown for email
+  const shouldShowVerifyEmailButton = () => {
+    // If no email set, don't show verify button
+    if (!originalEmail) return false;
+    
+    // If already verified, don't show verify button
+    if (contactDetails.isEmailVerified) return false;
+    
+    // If editing, don't show verify button (save button will be shown instead)
+    if (isEditingEmail) return false;
+    
+    return true;
   };
 
   if (isLoading) {
@@ -432,22 +584,34 @@ const Contact: React.FC = () => {
               
               {isEditingMobile ? (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-xl border border-border">
+                  <div className={`flex items-center gap-2 p-3 rounded-xl border ${
+                    mobileError ? 'border-error bg-error/5' : 'bg-muted/50 border-border'
+                  }`}>
                     <span className="text-muted-foreground">+91</span>
                     <input
                       type="tel"
                       value={mobileInput}
                       onChange={handleMobileInputChange}
+                      onKeyDown={(e) => {
+                        // Prevent entering non-numeric characters
+                        if (!/[\d\s]/.test(e.key) && 
+                            !['Backspace', 'Delete', 'Tab', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                          e.preventDefault();
+                        }
+                      }}
                       maxLength={12}
                       className="flex-1 bg-transparent text-foreground text-base outline-none"
                       placeholder="Enter 10-digit mobile number"
                       autoFocus
                     />
                   </div>
+                  {mobileError && (
+                    <p className="text-error text-sm">{mobileError}</p>
+                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleSaveEdit('mobile')}
-                      disabled={mobileInput.replace(/\s/g, '').length !== 10 || isSaving}
+                      disabled={mobileInput.replace(/\s/g, '').length !== 10 || isSaving || !!mobileError}
                       className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition disabled:opacity-50"
                     >
                       {isSaving ? 'Saving...' : 'Save'}
@@ -485,7 +649,7 @@ const Contact: React.FC = () => {
                     >
                       {originalMobileNumber ? 'Edit' : 'Add Mobile'}
                     </button>
-                    {!contactDetails.isMobileVerified && originalMobileNumber && (
+                    {shouldShowVerifyMobileButton() && (
                       <button
                         onClick={handleVerifyMobile}
                         disabled={isSendingOTP}
@@ -521,21 +685,32 @@ const Contact: React.FC = () => {
               
               {isEditingEmail ? (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-xl border border-border">
+                  <div className={`flex items-center gap-2 p-3 rounded-xl border ${
+                    emailError ? 'border-error bg-error/5' : 'bg-muted/50 border-border'
+                  }`}>
                     <FiMail className="text-muted-foreground" size={18} />
                     <input
                       type="email"
                       value={emailInput}
                       onChange={handleEmailInputChange}
+                      onKeyDown={(e) => {
+                        // Prevent spaces in email input
+                        if (e.key === ' ') {
+                          e.preventDefault();
+                        }
+                      }}
                       className="flex-1 bg-transparent text-foreground text-base outline-none"
                       placeholder="Enter email address"
                       autoFocus
                     />
                   </div>
+                  {emailError && (
+                    <p className="text-error text-sm">{emailError}</p>
+                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleSaveEdit('email')}
-                      disabled={!emailInput.includes('@') || isSaving}
+                      disabled={!emailInput.includes('@') || isSaving || !!emailError}
                       className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition disabled:opacity-50"
                     >
                       {isSaving ? 'Saving...' : 'Save'}
@@ -565,7 +740,7 @@ const Contact: React.FC = () => {
                     >
                       {originalEmail ? 'Edit' : 'Add Email'}
                     </button>
-                    {!contactDetails.isEmailVerified && originalEmail && (
+                    {shouldShowVerifyEmailButton() && (
                       <button
                         onClick={handleVerifyEmail}
                         disabled={isSendingOTP}

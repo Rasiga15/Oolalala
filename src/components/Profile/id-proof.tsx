@@ -70,23 +70,77 @@ const IDProof: React.FC = () => {
   ];
 
   const formatAadhar = (value: string) => {
+    // Remove all non-digit characters
     const digits = value.replace(/\D/g, '');
+    // Take only first 12 digits
     const limited = digits.slice(0, 12);
+    // Format as 4-4-4
     const parts = limited.match(/.{1,4}/g);
-    return parts ? parts.join(' ') : '';
+    return parts ? parts.join(' ') : limited;
+  };
+
+  const formatDrivingLicense = (value: string) => {
+    // Remove all spaces
+    let cleaned = value.replace(/\s/g, '');
+    
+    // If length is less than 2, just return uppercase
+    if (cleaned.length <= 2) {
+      return cleaned.toUpperCase();
+    }
+    
+    // Split into first 2 characters (state code) and rest
+    const firstTwo = cleaned.slice(0, 2).toUpperCase();
+    const rest = cleaned.slice(2);
+    
+    // Remove non-alphanumeric from rest and take only first 13 characters
+    const restCleaned = rest.replace(/[^A-Za-z0-9]/g, '').slice(0, 13);
+    
+    return firstTwo + restCleaned;
   };
 
   const handleDocumentNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
+    
     if (selectedDocument === 'aadhaar') {
+      // For Aadhaar: allow only digits and format
       setDocumentNumber(formatAadhar(value));
     } else if (selectedDocument === 'driving') {
-      // Driving license - remove spaces and convert to uppercase
-      const cleanValue = value.replace(/\s/g, '').toUpperCase();
-      setDocumentNumber(cleanValue);
+      // For Driving License: allow alphanumeric and format
+      setDocumentNumber(formatDrivingLicense(value));
     }
+    
     // Clear any server error when user starts typing
     if (serverError) setServerError(null);
+  };
+
+  const validateAadhaar = (value: string): boolean => {
+    // Remove spaces and check if exactly 12 digits
+    const cleanValue = value.replace(/\s/g, '');
+    return /^\d{12}$/.test(cleanValue);
+  };
+
+  const validateDrivingLicense = (value: string): boolean => {
+    // Remove spaces
+    const cleanValue = value.replace(/\s/g, '');
+    
+    // Should be exactly 15 characters
+    if (cleanValue.length !== 15) {
+      return false;
+    }
+    
+    // First 2 characters should be uppercase letters (state code)
+    const firstTwo = cleanValue.slice(0, 2);
+    if (!/^[A-Z]{2}$/.test(firstTwo)) {
+      return false;
+    }
+    
+    // Remaining 13 characters should be alphanumeric
+    const rest = cleanValue.slice(2);
+    if (!/^[A-Z0-9]{13}$/.test(rest)) {
+      return false;
+    }
+    
+    return true;
   };
 
   const handleSaveAndContinue = async () => {
@@ -108,15 +162,17 @@ const IDProof: React.FC = () => {
       return;
     }
 
-    // Validation
-    if (selectedDocument === 'aadhaar' && cleanNumber.length !== 12) {
-      toast.error('Please enter a valid 12-digit Aadhaar number');
-      return;
-    }
-
-    if (selectedDocument === 'driving' && cleanNumber.length < 5) {
-      toast.error('Please enter a valid driving license number');
-      return;
+    // Validation with specific error messages
+    if (selectedDocument === 'aadhaar') {
+      if (!validateAadhaar(documentNumber)) {
+        toast.error('Please enter a valid 12-digit Aadhaar number (digits only)');
+        return;
+      }
+    } else if (selectedDocument === 'driving') {
+      if (!validateDrivingLicense(documentNumber)) {
+        toast.error('Please enter a valid driving license number (e.g., TN01AB655312345) - 2 letters followed by 13 alphanumeric characters');
+        return;
+      }
     }
 
     setIsUploading(true);
@@ -176,7 +232,7 @@ const IDProof: React.FC = () => {
       case 'aadhaar':
         return '1234 5678 9012';
       case 'driving':
-        return 'TN01AB6553';
+        return 'TN01AB655312345';
       default:
         return '';
     }
@@ -190,6 +246,34 @@ const IDProof: React.FC = () => {
         return 'Driving License number';
       default:
         return 'Document number';
+    }
+  };
+
+  const getValidationMessage = () => {
+    switch (selectedDocument) {
+      case 'aadhaar':
+        const aadhaarDigits = documentNumber.replace(/\s/g, '').length;
+        return `Enter 12-digit Aadhaar number (${aadhaarDigits}/12 digits)`;
+      case 'driving':
+        const dlChars = documentNumber.replace(/\s/g, '').length;
+        const firstTwo = documentNumber.replace(/\s/g, '').slice(0, 2);
+        const isValidFirstTwo = /^[A-Z]{0,2}$/.test(firstTwo);
+        
+        let message = `Enter driving license number (${dlChars}/15 characters)`;
+        
+        if (dlChars >= 2 && !isValidFirstTwo) {
+          message += ' - First 2 characters should be state code (e.g., TN, DL, MH)';
+        } else if (dlChars > 2 && dlChars < 15) {
+          const rest = documentNumber.replace(/\s/g, '').slice(2);
+          const isValidRest = /^[A-Z0-9]*$/.test(rest);
+          if (!isValidRest) {
+            message += ' - Should contain only letters and numbers';
+          }
+        }
+        
+        return message;
+      default:
+        return '';
     }
   };
 
@@ -214,6 +298,19 @@ const IDProof: React.FC = () => {
     } catch (error) {
       return dateStr;
     }
+  };
+
+  // Check if current input is valid
+  const isInputValid = () => {
+    if (!documentNumber) return false;
+    
+    if (selectedDocument === 'aadhaar') {
+      return validateAadhaar(documentNumber);
+    } else if (selectedDocument === 'driving') {
+      return validateDrivingLicense(documentNumber);
+    }
+    
+    return false;
   };
 
   if (loading) {
@@ -325,8 +422,18 @@ const IDProof: React.FC = () => {
                           <p className="font-medium">{doc.documentNumber}</p>
                         </div>
                       </div>
-                      <span className="text-xs px-2 py-1 rounded-full bg-muted">
-                        {doc.verified_status === 'pending' ? 'Pending' : 'Verified'}
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        doc.verificationStatus === 'verified' 
+                          ? 'bg-green-100 text-green-800' 
+                          : doc.verificationStatus === 'pending'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {doc.verificationStatus === 'verified' 
+                          ? 'Verified' 
+                          : doc.verificationStatus === 'pending'
+                          ? 'Pending'
+                          : 'Rejected'}
                       </span>
                     </div>
                   ))}
@@ -357,8 +464,9 @@ const IDProof: React.FC = () => {
                     className="h-12 text-base pr-12"
                     disabled={isUploading}
                     autoFocus
+                    maxLength={selectedDocument === 'aadhaar' ? 14 : 17} // Account for spaces
                   />
-                  {documentNumber && !serverError && (
+                  {isInputValid() && !serverError && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
                       <div className="w-6 h-6 rounded-full flex items-center justify-center bg-green-500">
                         <Check size={14} className="text-white" />
@@ -366,26 +474,36 @@ const IDProof: React.FC = () => {
                     </div>
                   )}
                 </div>
-                {selectedDocument === 'aadhaar' && (
-                  <p className="text-xs text-muted-foreground">
-                    Enter 12-digit Aadhaar number
-                  </p>
-                )}
-                {selectedDocument === 'driving' && (
-                  <p className="text-xs text-muted-foreground">
-                    Enter driving license number (e.g., TN01AB6553)
-                  </p>
-                )}
+                <p className={`text-xs ${
+                  isInputValid() ? 'text-green-600' : 'text-muted-foreground'
+                }`}>
+                  {getValidationMessage()}
+                </p>
               </div>
 
-             
-
-             
+              {/* Example Format */}
+              <div className="bg-muted/30 p-4 rounded-lg">
+                <p className="text-sm font-medium text-foreground mb-2">Format:</p>
+                {selectedDocument === 'aadhaar' ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">• Exactly 12 digits</p>
+                    <p className="text-xs text-muted-foreground">• Only numbers allowed</p>
+                    <p className="text-xs text-muted-foreground">• Example: 1234 5678 9012</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">• First 2 characters: State code (e.g., TN, DL, MH)</p>
+                    <p className="text-xs text-muted-foreground">• Next 13 characters: Alphanumeric</p>
+                    <p className="text-xs text-muted-foreground">• Total: 15 characters</p>
+                    <p className="text-xs text-muted-foreground">• Example: TN01AB655312345</p>
+                  </div>
+                )}
+              </div>
 
               {/* Save & Continue Button */}
               <Button
                 onClick={handleSaveAndContinue}
-                disabled={isUploading || !documentNumber}
+                disabled={isUploading || !isInputValid()}
                 className="w-full h-12 text-base font-medium"
                 size="lg"
               >

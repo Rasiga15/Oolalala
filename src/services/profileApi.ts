@@ -15,6 +15,15 @@ export interface BasicProfileData {
   professionalType?: string;
 }
 
+export interface ProfileCompletionResponse {
+  percentage: number;
+  missingFields: string[];
+  details: {
+    totalSteps: number;
+    completedSteps: number;
+  };
+}
+
 class ProfileApiService {
   private static instance: ProfileApiService;
 
@@ -123,6 +132,69 @@ class ProfileApiService {
       };
     } catch (error: any) {
       console.error('Error fetching basic profile:', error);
+      return handleApiError(error);
+    }
+  }
+
+  // GET /api/profile/completion
+  async getProfileCompletion(): Promise<ApiResponse<ProfileCompletionResponse>> {
+    try {
+      const token = this.getToken();
+      
+      if (!token) {
+        return {
+          success: false,
+          error: 'Authentication required. Please login again.',
+          message: 'No authentication token found'
+        };
+      }
+
+      const response = await fetch(`${BASE_URL}/api/profile/completion`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('authToken');
+        return {
+          success: false,
+          error: 'Your session has expired. Please login again.',
+          message: 'Authentication expired'
+        };
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = `HTTP error ${response.status}`;
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch {
+          if (errorText) {
+            errorMessage = errorText;
+          }
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      
+      return {
+        success: true,
+        data: {
+          percentage: data.percentage,
+          missingFields: data.missingFields || [],
+          details: {
+            totalSteps: data.details?.totalSteps || 0,
+            completedSteps: data.details?.completedSteps || 0
+          }
+        },
+        message: 'Profile completion data loaded successfully'
+      };
+    } catch (error: any) {
+      console.error('Error fetching profile completion:', error);
       return handleApiError(error);
     }
   }

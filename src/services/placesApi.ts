@@ -1,4 +1,4 @@
-// placesApi.ts
+// placesApi.ts - UPDATED WITH searchPlacesAlongRoute FUNCTION
 const API_KEY = 'AIzaSyCsWQJdiuPGmabvpX-_4FhyC9C5GKu3TLk';
 
 export interface Place {
@@ -12,6 +12,101 @@ export interface Place {
     longitude: number;
   };
 }
+
+// NEW FUNCTION: Search places along a route
+export const searchPlacesAlongRoute = async (
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+  query: string,
+  radiusKm: number = 50
+): Promise<Array<{
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+}>> => {
+  try {
+    // Calculate midpoint between origin and destination for location bias
+    const midLat = (origin.lat + destination.lat) / 2;
+    const midLng = (origin.lng + destination.lng) / 2;
+    
+    // Use searchText API with location bias
+    const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': API_KEY,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location'
+      },
+      body: JSON.stringify({
+        textQuery: query,
+        languageCode: 'en',
+        regionCode: 'IN',
+        locationBias: {
+          circle: {
+            center: {
+              latitude: midLat,
+              longitude: midLng
+            },
+            radius: radiusKm * 1000 // Convert km to meters
+          }
+        },
+        rankPreference: 'RELEVANCE'
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Search places along route error:', errorText);
+      throw new Error(`Search API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.places && data.places.length > 0) {
+      // Filter places that are between origin and destination
+      const filteredPlaces = await Promise.all(
+        data.places.slice(0, 10).map(async (place: any) => {
+          const placeLocation = {
+            lat: place.location?.latitude || 0,
+            lng: place.location?.longitude || 0
+          };
+          
+          // Check if place is between origin and destination
+          const validation = isStopBetweenRoute(placeLocation, origin, destination, radiusKm);
+          
+          return {
+            placeId: place.id,
+            name: place.displayName?.text || 'Unknown place',
+            address: place.formattedAddress || '',
+            lat: place.location?.latitude || 0,
+            lng: place.location?.longitude || 0,
+            isValid: validation.isValid,
+            distanceFromRoute: validation.distanceFromRoute
+          };
+        })
+      );
+      
+      // Sort by relevance (closer to route first) and return valid places
+      return filteredPlaces
+        .filter(place => place.isValid)
+        .sort((a, b) => a.distanceFromRoute - b.distanceFromRoute)
+        .map(place => ({
+          placeId: place.placeId,
+          name: place.name,
+          address: place.address,
+          lat: place.lat,
+          lng: place.lng
+        }));
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Error in searchPlacesAlongRoute:', error);
+    throw error;
+  }
+};
 
 // Autocomplete API with location bias
 export const autocompletePlaces = async (input: string, locationBias?: { lat: number, lng: number, radius?: number }): Promise<Place[]> => {

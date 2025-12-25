@@ -1,19 +1,14 @@
-// src/pages/offer-ride/OfferRide3.tsx - FIXED VEHICLE SELECTION
+// src/pages/offer-ride/OfferRide3.tsx - UPDATED WITHOUT VEHICLE SELECTION
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, IndianRupee, Users, Calendar, Clock, Navigation, Car, Loader2, Plus, ShieldAlert, Minus, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, IndianRupee, Users, Calendar, Clock, Navigation, Loader2, Plus, ShieldAlert, Minus, AlertTriangle, CheckCircle } from 'lucide-react';
 import Navbar from '../layout/Navbar';
-import { fetchVerifiedVehicles, Vehicle } from '../../services/rideApi';
 
 const OfferRide3: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const rideData = location.state;
 
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
-  const [isLoadingVehicles, setIsLoadingVehicles] = useState(true);
-  const [error, setError] = useState<string>('');
   const [seatCount, setSeatCount] = useState(rideData?.seats || 1);
   const [pricePerSeat, setPricePerSeat] = useState(rideData?.pricePerSeat || 650);
   const [showSeatWarning, setShowSeatWarning] = useState(false);
@@ -31,48 +26,16 @@ const OfferRide3: React.FC = () => {
     
     setOriginalPricePerSeat(rideData.pricePerSeat || 650);
     setIsFullCar(rideData.isFullCar || false);
-    
-    loadVehicles();
   }, [rideData, navigate]);
 
-  const loadVehicles = async () => {
-    setIsLoadingVehicles(true);
-    setError('');
-    
-    try {
-      console.log('Loading verified vehicles...');
-      const verifiedVehicles = await fetchVerifiedVehicles();
-      console.log('Verified vehicles loaded:', verifiedVehicles);
-      
-      setVehicles(verifiedVehicles);
-      
-      if (verifiedVehicles.length > 0) {
-        // Auto-select first verified vehicle
-        setSelectedVehicle(verifiedVehicles[0]);
-      } else {
-        setError('No verified vehicles found. Please add and verify a vehicle first.');
-      }
-    } catch (error: any) {
-      console.error('Error loading verified vehicles:', error);
-      setError('Failed to load vehicles. Please try again.');
-    } finally {
-      setIsLoadingVehicles(false);
-    }
-  };
-
   const handleContinue = () => {
-    if (!selectedVehicle) {
-      setError('Please select a vehicle');
-      return;
-    }
-
     // Update ride data with current seat count and price
     const updatedRideData = {
       ...rideData,
-      selectedVehicle: selectedVehicle,
       seats: seatCount,
       pricePerSeat: pricePerSeat,
       isFullCar: isFullCar,
+      isNegotiable: rideData.isNegotiable,
     };
 
     console.log('Navigating to OfferRide4 with updated data:', updatedRideData);
@@ -82,14 +45,6 @@ const OfferRide3: React.FC = () => {
 
   const handleBack = () => {
     navigate(-1);
-  };
-
-  const handleAddVehicle = () => {
-    navigate('/profile/vehicles/add');
-  };
-
-  const handleViewVerificationStatus = () => {
-    navigate('/profile/vehicles');
   };
 
   const handleSeatIncrement = () => {
@@ -226,9 +181,9 @@ const OfferRide3: React.FC = () => {
               <ArrowLeft size={16} />
               <span>Back</span>
             </button>
-            <h1 className="text-xl font-bold text-foreground">Choose Vehicle</h1>
+            <h1 className="text-xl font-bold text-foreground">Set Fare & Seats</h1>
             <p className="text-muted-foreground mt-1 text-sm">
-              Select a verified vehicle for your ride
+              Adjust fare and seat count for your ride
             </p>
           </div>
 
@@ -240,18 +195,6 @@ const OfferRide3: React.FC = () => {
                 <div>
                   <p className="font-medium text-sm">Full Car (Private Ride)</p>
                   <p className="text-xs">Direct route without stops • Single base fare</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <div className="mb-5 p-3 bg-red-500/10 border border-red-500 rounded-lg">
-              <div className="flex items-center gap-2 text-red-600">
-                <ShieldAlert size={16} />
-                <div>
-                  <p className="font-medium text-sm">{error}</p>
                 </div>
               </div>
             </div>
@@ -479,99 +422,15 @@ const OfferRide3: React.FC = () => {
               </div>
             </div>
 
-            {/* Right Column - Vehicle Selection */}
+            {/* Right Column - Continue Section */}
             <div className="lg:w-1/2 space-y-5">
-              {/* Vehicle Selection Card with white background */}
-              <div className="bg-white rounded-xl p-4 border border-border">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-semibold text-foreground">Your Verified Vehicles</h2>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={handleViewVerificationStatus}
-                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-0.5"
-                    >
-                      <ShieldAlert size={12} />
-                      View All
-                    </button>
-                    <button
-                      onClick={handleAddVehicle}
-                      className="text-xs text-primary hover:text-primary/80 flex items-center gap-0.5"
-                    >
-                      <Plus size={12} />
-                      Add New
-                    </button>
-                  </div>
-                </div>
-                
-                {isLoadingVehicles ? (
-                  <div className="flex items-center justify-center gap-2 py-6">
-                    <Loader2 size={16} className="animate-spin text-primary" />
-                    <span className="text-sm text-foreground">Loading verified vehicles...</span>
-                  </div>
-                ) : vehicles.length > 0 ? (
-                  <div className="space-y-2">
-                    {vehicles.map((vehicle) => {
-                      const isSelected = selectedVehicle?.id === vehicle.id;
-                      
-                      return (
-                        <div 
-                          key={vehicle.id}
-                          onClick={() => setSelectedVehicle(vehicle)}
-                          className={`p-3 border rounded-lg cursor-pointer transition-all ${
-                            isSelected 
-                              ? 'border-green-500 bg-green-50 shadow-sm' 
-                              : 'bg-gray-50 border-border hover:bg-gray-100'
-                          }`}
-                        >
-                          <div className="flex items-start gap-2">
-                            <div className="p-1.5 rounded-md bg-green-100">
-                              <Car size={16} className="text-green-600" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex justify-between items-start">
-                                <div className="min-w-0">
-                                  <div className="font-medium text-sm text-foreground flex items-center gap-1 truncate">
-                                    {vehicle.number_plate}
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap bg-green-100 text-green-800">
-                                      ✓ Verified
-                                    </span>
-                                  </div>
-                                  <div className="text-xs text-muted-foreground truncate">
-                                    {vehicle.model || vehicle.vehicle_type} · {vehicle.seating_capacity} seats
-                                    {vehicle.color && ` · ${vehicle.color}`}
-                                  </div>
-                                </div>
-                                {isSelected && (
-                                  <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center ml-1 flex-shrink-0 border-green-500">
-                                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-6 border border-dashed border-border rounded-lg bg-gray-50">
-                    <Car className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground mb-2">No verified vehicles found</p>
-                    <p className="text-xs text-muted-foreground mb-3">
-                      You need to add and verify a vehicle before offering rides
-                    </p>
-                    <button
-                      onClick={handleAddVehicle}
-                      className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm"
-                    >
-                      Add & Verify Vehicle
-                    </button>
-                  </div>
-                )}
-
-                {/* Selected Vehicle Details */}
-                {selectedVehicle && (
-                  <div className="mt-4 p-3 rounded-lg bg-green-50 border border-green-200">
+              {/* Vehicle & Driver Info Card */}
+              {rideData.selectedVehicle && rideData.selectedDriver && (
+                <div className="bg-white rounded-xl p-4 border border-border">
+                  <h2 className="text-lg font-semibold text-foreground mb-3">Assigned Resources</h2>
+                  
+                  {/* Vehicle Info */}
+                  <div className="mb-3 p-3 rounded-lg bg-green-50 border border-green-200">
                     <div className="flex justify-between items-center mb-1">
                       <div className="font-medium text-sm text-foreground">
                         Selected Vehicle
@@ -583,33 +442,64 @@ const OfferRide3: React.FC = () => {
                     <div className="grid grid-cols-2 gap-1 text-xs">
                       <div className="truncate">
                         <span className="text-muted-foreground">Plate:</span>
-                        <span className="font-medium ml-1">{selectedVehicle.number_plate}</span>
+                        <span className="font-medium ml-1">{rideData.selectedVehicle.number_plate}</span>
                       </div>
                       <div className="truncate">
                         <span className="text-muted-foreground">Type:</span>
-                        <span className="font-medium ml-1 capitalize">{selectedVehicle.vehicle_type}</span>
+                        <span className="font-medium ml-1 capitalize">{rideData.selectedVehicle.vehicle_type}</span>
                       </div>
-                      {selectedVehicle.model && (
+                      {rideData.selectedVehicle.model && (
                         <div className="truncate">
                           <span className="text-muted-foreground">Model:</span>
-                          <span className="font-medium ml-1">{selectedVehicle.model}</span>
+                          <span className="font-medium ml-1">{rideData.selectedVehicle.model}</span>
                         </div>
                       )}
                       <div className="truncate">
                         <span className="text-muted-foreground">Seats:</span>
-                        <span className="font-medium ml-1">{selectedVehicle.seating_capacity}</span>
+                        <span className="font-medium ml-1">{rideData.selectedVehicle.seating_capacity}</span>
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
+                  
+                  {/* Driver Info */}
+                  <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                    <div className="flex justify-between items-center mb-1">
+                      <div className="font-medium text-sm text-foreground">
+                        Selected Driver
+                      </div>
+                      <div className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap bg-green-100 text-green-800">
+                        ✓ Verified
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <div className="truncate">
+                        <span className="text-muted-foreground">Name:</span>
+                        <span className="font-medium ml-1">
+                          {rideData.selectedDriver.user.first_name} {rideData.selectedDriver.user.last_name}
+                        </span>
+                      </div>
+                      <div className="truncate">
+                        <span className="text-muted-foreground">Phone:</span>
+                        <span className="font-medium ml-1">{rideData.selectedDriver.user.mobile_number}</span>
+                      </div>
+                      <div className="truncate">
+                        <span className="text-muted-foreground">Gender:</span>
+                        <span className="font-medium ml-1">{rideData.selectedDriver.user.gender}</span>
+                      </div>
+                      <div className="truncate">
+                        <span className="text-muted-foreground">Rating:</span>
+                        <span className="font-medium ml-1">{rideData.selectedDriver.average_rating || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Continue Button */}
               <div className="sticky bottom-4">
                 <button
                   onClick={handleContinue}
-                  disabled={!selectedVehicle}
-                  className="w-full py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  className="w-full py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors text-sm"
                 >
                   Continue to Publish Ride
                 </button>
@@ -618,16 +508,6 @@ const OfferRide3: React.FC = () => {
                   <p className="text-xs text-muted-foreground">
                     You'll review and publish your ride in the next step
                   </p>
-                  {!selectedVehicle && vehicles.length === 0 && (
-                    <p className="text-xs text-amber-600 mt-0.5">
-                      No verified vehicles available. Please add and verify a vehicle first.
-                    </p>
-                  )}
-                  {!selectedVehicle && vehicles.length > 0 && (
-                    <p className="text-xs text-amber-600 mt-0.5">
-                      Please select a vehicle to continue
-                    </p>
-                  )}
                 </div>
               </div>
             </div>

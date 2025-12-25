@@ -30,8 +30,8 @@ import WithdrawMoney from "./components/wallet/withdraw";
 import AddPaymentMethod from "./components/wallet/addpaymentmethod";
 import DriverManagementMainScreen from "./components/Profile/DriverManagementMainScreen";
 
-import FindRideStep3 from "./components/Findride/FindRideStep";
-import FindRideSuccess from "./components/Findride/FindRideSuccess";
+import FindRideStep3 from "./components/Findride/RideCard";
+import FindRideSuccess from "./components/Findride/ConfirmRequestPanel";
 import { MyRidesPanel } from "./pages/Myridepanel";
 
 
