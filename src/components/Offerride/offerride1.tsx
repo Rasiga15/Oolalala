@@ -122,7 +122,7 @@ const OfferRide1: React.FC = () => {
   const [rideCreationStatus, setRideCreationStatus] = useState<RideCreationStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [canCreateRide, setCanCreateRide] = useState(false);
-  const [showSuccessToast, setShowSuccessToast] = useState(true); // New state for toast visibility
+  const [showSuccessToast, setShowSuccessToast] = useState(true);
   
   // API data
   const [settings, setSettings] = useState<any>(null);
@@ -141,8 +141,10 @@ const OfferRide1: React.FC = () => {
   const [gettingCurrentLocationPickup, setGettingCurrentLocationPickup] = useState(false);
   const [gettingCurrentLocationDrop, setGettingCurrentLocationDrop] = useState(false);
   
-  // Error state
+  // Error and toast states
   const [error, setError] = useState<string | null>(null);
+  const [showErrorToast, setShowErrorToast] = useState(false);
+  const [showProfileRedirectToast, setShowProfileRedirectToast] = useState(false);
   
   const pickupRef = useRef<HTMLDivElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -224,20 +226,29 @@ const OfferRide1: React.FC = () => {
         setCanCreateRide(status.canCreateRide);
         
         if (!status.canCreateRide) {
-          setError(status.message);
-          // Redirect to profile page if cannot create ride
-          setTimeout(() => {
+          setShowProfileRedirectToast(true);
+          
+          // Auto-hide toast and redirect after 5 seconds
+          const timer = setTimeout(() => {
+            setShowProfileRedirectToast(false);
             navigate('/profile');
-          }, 3000); // Redirect after 3 seconds
+          }, 5000);
+          
+          return () => clearTimeout(timer);
         }
       } catch (error: any) {
         console.error('Failed to check ride creation status:', error);
         setError(error.message || 'Unable to verify ride creation eligibility. Please try again.');
         setCanCreateRide(false);
-        // Redirect to profile page on error
-        setTimeout(() => {
+        setShowProfileRedirectToast(true);
+        
+        // Auto-hide toast and redirect after 5 seconds
+        const timer = setTimeout(() => {
+          setShowProfileRedirectToast(false);
           navigate('/profile');
-        }, 3000);
+        }, 5000);
+        
+        return () => clearTimeout(timer);
       } finally {
         setLoadingStatus(false);
       }
@@ -409,6 +420,7 @@ const OfferRide1: React.FC = () => {
       
       if (distance < 0.1) { // Less than 100 meters
         setError('Pickup and drop locations cannot be the same or too close. Please select different locations.');
+        setShowErrorToast(true);
         return;
       }
     }
@@ -437,6 +449,7 @@ const OfferRide1: React.FC = () => {
       
       if (distance < 0.1) { // Less than 100 meters
         setError('Drop and pickup locations cannot be the same or too close. Please select different locations.');
+        setShowErrorToast(true);
         return;
       }
     }
@@ -466,6 +479,7 @@ const OfferRide1: React.FC = () => {
       } catch (error) {
         console.error('Error searching pickup places:', error);
         setError('Failed to search pickup locations. Please try again.');
+        setShowErrorToast(true);
       }
     }, 300);
   }, []);
@@ -489,6 +503,7 @@ const OfferRide1: React.FC = () => {
       } catch (error) {
         console.error('Error searching drop places:', error);
         setError('Failed to search drop locations. Please try again.');
+        setShowErrorToast(true);
       }
     }, 300);
   }, []);
@@ -527,6 +542,7 @@ const OfferRide1: React.FC = () => {
         
         if (distance < 0.1) {
           setError('Pickup and drop locations cannot be the same or too close. Please select different locations.');
+          setShowErrorToast(true);
           return;
         }
       }
@@ -548,6 +564,7 @@ const OfferRide1: React.FC = () => {
       } else {
         setError('Unable to get current location. Please check your location services or enter location manually.');
       }
+      setShowErrorToast(true);
     } finally {
       setGettingCurrentLocationPickup(false);
     }
@@ -587,6 +604,7 @@ const OfferRide1: React.FC = () => {
         
         if (distance < 0.1) {
           setError('Drop and pickup locations cannot be the same or too close. Please select different locations.');
+          setShowErrorToast(true);
           return;
         }
       }
@@ -608,6 +626,7 @@ const OfferRide1: React.FC = () => {
       } else {
         setError('Unable to get current location. Please check your location services or enter location manually.');
       }
+      setShowErrorToast(true);
     } finally {
       setGettingCurrentLocationDrop(false);
     }
@@ -667,17 +686,20 @@ const OfferRide1: React.FC = () => {
     // First check if user can create ride
     if (!canCreateRide) {
       setError(rideCreationStatus?.message || 'You are not eligible to create a ride. Please check your profile settings.');
+      setShowErrorToast(true);
       return;
     }
 
     // Validation checks
     if (!selectedPickup || !selectedDrop) {
       setError('Please select valid pickup and drop locations');
+      setShowErrorToast(true);
       return;
     }
 
     if (!selectedPickup.lat || !selectedPickup.lng || !selectedDrop.lat || !selectedDrop.lng) {
       setError('Location coordinates not available. Please select from suggestions.');
+      setShowErrorToast(true);
       return;
     }
 
@@ -689,35 +711,41 @@ const OfferRide1: React.FC = () => {
     
     if (distance < 0.1) {
       setError('Pickup and drop locations cannot be the same or too close. Please select different locations.');
+      setShowErrorToast(true);
       return;
     }
 
     // Check if distance is at least 100 km
     if (distance < 100) {
       setError(`Distance must be at least 100 km (Current: ${distance.toFixed(1)} km)`);
+      setShowErrorToast(true);
       return;
     }
 
     // Check if vehicle is selected
     if (!selectedVehicle) {
       setError('Please select a vehicle');
+      setShowErrorToast(true);
       return;
     }
 
     // Check if driver is selected
     if (!selectedDriver) {
       setError('Please select a driver');
+      setShowErrorToast(true);
       return;
     }
 
     // Validate time is selected
     if (!time) {
       setError('Please select a valid time');
+      setShowErrorToast(true);
       return;
     }
 
     // Clear any previous errors
     setError(null);
+    setShowErrorToast(false);
 
     // Convert date and time to ISO format for API
     const time24Hour = convertTo24HourFormat(time, timeFormat);
@@ -783,51 +811,6 @@ const OfferRide1: React.FC = () => {
     );
   }
 
-  // If user cannot create ride, show blocked screen with redirect
-  if (!canCreateRide) {
-    return (
-      <div className="h-screen overflow-hidden bg-gray-50 flex flex-col">
-        <Navbar />
-        
-        {/* Back Button - Fixed Top Left */}
-        <button
-          onClick={() => navigate(-1)}
-          className="fixed top-20 left-4 z-20 p-2 hover:bg-gray-200 rounded-full transition-colors"
-          aria-label="Go back"
-        >
-          <ArrowLeft size={20} className="text-gray-800" />
-        </button>
-
-        <div className="flex-1 flex flex-col items-center justify-center px-4">
-          <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
-              <XCircle size={32} className="text-red-600" />
-            </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Cannot Create Ride</h2>
-            <p className="text-gray-600 mb-4">{rideCreationStatus?.message || 'You are not eligible to create a ride.'}</p>
-            <p className="text-sm text-gray-500 mb-6">
-              Redirecting to profile page in 3 seconds...
-            </p>
-            <div className="space-y-3">
-              <button
-                onClick={() => navigate('/profile')}
-                className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
-              >
-                Go to Profile Settings Now
-              </button>
-              <button
-                onClick={() => navigate(-1)}
-                className="w-full bg-gray-200 text-gray-800 py-2.5 px-4 rounded-lg font-medium hover:bg-gray-300 transition-colors"
-              >
-                Go Back
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen overflow-hidden bg-gray-50 flex flex-col">
       <Navbar />
@@ -841,39 +824,73 @@ const OfferRide1: React.FC = () => {
         <ArrowLeft size={20} className="text-gray-800" />
       </button>
 
-      {/* BLUE HIGHLIGHT SECTION - Shows when user can create ride */}
-      {canCreateRide && rideCreationStatus?.message && showSuccessToast && (
-        <div className="bg-blue-600 text-white py-2 px-4">
-          <div className="max-w-6xl mx-auto">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Check size={16} className="text-white" />
-                <span className="font-medium text-sm">{rideCreationStatus.message}</span>
-              </div>
-              <button
-                onClick={() => setShowSuccessToast(false)}
-                className="p-1 hover:bg-blue-700 rounded-full transition-colors"
-                aria-label="Close"
+      {/* Profile Redirect Toast (Shows when cannot create ride) */}
+      {showProfileRedirectToast && !canCreateRide && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in max-w-md w-[90%] md:w-auto">
+          <XCircle size={18} />
+          <div className="flex-1">
+            <span className="font-medium">{rideCreationStatus?.message || 'You are not eligible to create a ride.'}</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-xs opacity-90">
+                Redirecting to profile in 5 seconds...
+              </span>
+              <button 
+                onClick={() => navigate('/profile')}
+                className="ml-2 text-xs bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded transition-colors"
               >
-                <X size={14} className="text-white" />
+                Go Now
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Error Toast Notification */}
-      {(error || distanceError) && (
-        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in">
-          <AlertCircle size={18} />
-          <span className="font-medium">{error || distanceError}</span>
-          <button onClick={() => {setError(null); setDistanceError('');}} className="ml-2">
+          <button 
+            onClick={() => {
+              setShowProfileRedirectToast(false);
+              navigate('/profile');
+            }}
+            className="p-0.5 hover:bg-red-600 rounded-full transition-colors"
+          >
             <X size={16} />
           </button>
         </div>
       )}
 
-      {/* MAIN AREA */}
+      {/* Success Toast (Shows when user can create ride) */}
+      {canCreateRide && rideCreationStatus?.message && showSuccessToast && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in max-w-md w-[90%] md:w-auto">
+          <Check size={18} />
+          <div className="flex-1">
+            <span className="font-medium">{rideCreationStatus.message}</span>
+          </div>
+          <button
+            onClick={() => setShowSuccessToast(false)}
+            className="p-0.5 hover:bg-blue-700 rounded-full transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Error Toast (Shows validation errors) */}
+      {(showErrorToast && (error || distanceError)) && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in max-w-md w-[90%] md:w-auto">
+          <AlertCircle size={18} />
+          <div className="flex-1">
+            <span className="font-medium">{error || distanceError}</span>
+          </div>
+          <button 
+            onClick={() => {
+              setShowErrorToast(false);
+              setError(null);
+              setDistanceError('');
+            }}
+            className="p-0.5 hover:bg-red-600 rounded-full transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* MAIN AREA - Scrollable on mobile/tablet */}
       <div className="flex-1 pt-4 overflow-hidden">
         <div className="h-full max-w-6xl mx-auto px-4 py-2 flex flex-col">
           {/* HEADER */}
@@ -886,9 +903,9 @@ const OfferRide1: React.FC = () => {
             </p>
           </div>
 
-          {/* CONTENT - No scroll */}
-          <div className="flex-1 overflow-hidden">
-            <div className="space-y-3">
+          {/* CONTENT - Scrollable on smaller screens */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden pb-6 md:pb-0">
+            <div className="space-y-4 md:space-y-3">
               {/* PICKUP & DROP IN SINGLE ROW */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* PICKUP LOCATION */}
@@ -1082,14 +1099,14 @@ const OfferRide1: React.FC = () => {
                     <Clock className="text-blue-600" size={16} />
                     <span className="text-sm font-medium text-gray-900">Time</span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                     <input
                       type="time"
                       value={time}
                       onChange={handleTimeChange}
-                      className="font-bold w-24 outline-none bg-transparent text-gray-900 text-sm"
+                      className="font-bold w-full sm:w-24 outline-none bg-transparent text-gray-900 text-sm"
                     />
-                    <div className="flex border border-gray-300 rounded-md overflow-hidden">
+                    <div className="flex border border-gray-300 rounded-md overflow-hidden self-start">
                       <button
                         onClick={() => handleTimeFormatChange('AM')}
                         className={`px-3 py-1.5 flex items-center gap-1.5 text-xs ${
@@ -1145,7 +1162,7 @@ const OfferRide1: React.FC = () => {
                 </div>
               </div>
 
-              {/* DRIVER, VEHICLE, PREFERENCES - THREE COLUMNS */}
+              {/* DRIVER, VEHICLE, PREFERENCES - THREE COLUMNS - Stack on mobile */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {/* DRIVER COLUMN */}
                 <div>
@@ -1234,99 +1251,98 @@ const OfferRide1: React.FC = () => {
                 </div>
 
                 {/* VEHICLE COLUMN */}
-               <div className="bg-white rounded-2xl shadow-lg p-4">
-  {/* Header */}
-  <div className="flex items-center gap-2 mb-3">
-    <Car className="text-green-600" size={18} />
-    <span className="font-semibold text-sm text-gray-900">
-      Select Vehicle
-    </span>
-  </div>
+                <div className="bg-white rounded-2xl shadow-lg p-4">
+                  {/* Header */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <Car className="text-green-600" size={18} />
+                    <span className="font-semibold text-sm text-gray-900">
+                      Select Vehicle
+                    </span>
+                  </div>
 
-  {loadingVehicles ? (
-    <div className="flex items-center justify-center gap-2 py-6">
-      <Loader2 size={18} className="animate-spin text-green-600" />
-      <span className="text-sm text-gray-600">Loading vehicles...</span>
-    </div>
+                  {loadingVehicles ? (
+                    <div className="flex items-center justify-center gap-2 py-6">
+                      <Loader2 size={18} className="animate-spin text-green-600" />
+                      <span className="text-sm text-gray-600">Loading vehicles...</span>
+                    </div>
 
-  ) : vehicleError ? (
-    <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-      <div className="flex items-center gap-2 text-red-600">
-        <AlertCircle size={16} />
-        <span className="text-sm">{vehicleError}</span>
-      </div>
-    </div>
+                  ) : vehicleError ? (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <div className="flex items-center gap-2 text-red-600">
+                        <AlertCircle size={16} />
+                        <span className="text-sm">{vehicleError}</span>
+                      </div>
+                    </div>
 
-  ) : vehicles.length > 0 ? (
-    <div className="space-y-3">
-      {vehicles.map((vehicle) => {
-        const isCommercial = isCommercialVehicle(vehicle);
-        const isActive = selectedVehicle?.id === vehicle.id;
+                  ) : vehicles.length > 0 ? (
+                    <div className="space-y-3">
+                      {vehicles.map((vehicle) => {
+                        const isCommercial = isCommercialVehicle(vehicle);
+                        const isActive = selectedVehicle?.id === vehicle.id;
 
-        return (
-          <div
-            key={vehicle.id}
-            onClick={() => setSelectedVehicle(vehicle)}
-            className={`rounded-xl border p-3 cursor-pointer transition-all ${
-              isActive
-                ? isCommercial
-                  ? "border-yellow-500 bg-yellow-50 shadow-sm"
-                  : "border-blue-500 bg-blue-50 shadow-sm"
-                : "border-gray-200 hover:bg-gray-50"
-            }`}
-          >
-            {/* Vehicle Number (NO BLACK) */}
-            <div className="text-center mb-2">
-              <span className="text-base font-semibold text-gray-900 tracking-wide">
-                {vehicle.number_plate}
-              </span>
-            </div>
+                        return (
+                          <div
+                            key={vehicle.id}
+                            onClick={() => setSelectedVehicle(vehicle)}
+                            className={`rounded-xl border p-3 cursor-pointer transition-all ${
+                              isActive
+                                ? isCommercial
+                                  ? "border-yellow-500 bg-yellow-50 shadow-sm"
+                                  : "border-blue-500 bg-blue-50 shadow-sm"
+                                : "border-gray-200 hover:bg-gray-50"
+                            }`}
+                          >
+                            {/* Vehicle Number (NO BLACK) */}
+                            <div className="text-center mb-2">
+                              <span className="text-base font-semibold text-gray-900 tracking-wide">
+                                {vehicle.number_plate}
+                              </span>
+                            </div>
 
-            {/* Badges + Active */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-800">
-                  Verified
-                </span>
+                            {/* Badges + Active */}
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-800">
+                                  Verified
+                                </span>
 
-                {isCommercial && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800">
-                    Commercial
-                  </span>
-                )}
-              </div>
+                                {isCommercial && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800">
+                                    Commercial
+                                  </span>
+                                )}
+                              </div>
 
-              {isActive && (
-                <div
-                  className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                    isCommercial
-                      ? "border-yellow-500"
-                      : "border-blue-500"
-                  }`}
-                >
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      isCommercial
-                        ? "bg-yellow-500"
-                        : "bg-blue-500"
-                    }`}
-                  />
+                              {isActive && (
+                                <div
+                                  className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                    isCommercial
+                                      ? "border-yellow-500"
+                                      : "border-blue-500"
+                                  }`}
+                                >
+                                  <div
+                                    className={`w-2 h-2 rounded-full ${
+                                      isCommercial
+                                        ? "bg-yellow-500"
+                                        : "bg-blue-500"
+                                    }`}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                  ) : (
+                    <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
+                      <Car className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">No vehicles found</p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-
-  ) : (
-    <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
-      <Car className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-      <p className="text-sm text-gray-500">No vehicles found</p>
-    </div>
-  )}
-</div>
-
 
                 {/* PREFERENCES COLUMN */}
                 <div>
@@ -1405,23 +1421,23 @@ const OfferRide1: React.FC = () => {
               </div>
             </div>
           </div>
-
-          {/* FLOATING CONTINUE BUTTON */}
-          <div className="fixed bottom-6 right-6 z-10">
-            <button
-              onClick={handleContinue}
-              disabled={!selectedPickup || !selectedDrop || !selectedVehicle || !selectedDriver || loadingSettings || !!error || !!distanceError || !time}
-              className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all ${
-                selectedPickup && selectedDrop && selectedVehicle && selectedDriver && !loadingSettings && !error && !distanceError && time
-                  ? 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-              aria-label="Continue"
-            >
-              <CircleArrowRight className="w-5 h-5" />
-            </button>
-          </div>
         </div>
+      </div>
+
+      {/* FLOATING CONTINUE BUTTON - Fixed position for mobile/tablet */}
+      <div className="fixed bottom-6 right-6 z-10">
+        <button
+          onClick={handleContinue}
+          disabled={!selectedPickup || !selectedDrop || !selectedVehicle || !selectedDriver || loadingSettings || !!error || !!distanceError || !time}
+          className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all ${
+            selectedPickup && selectedDrop && selectedVehicle && selectedDriver && !loadingSettings && !error && !distanceError && time
+              ? 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 active:scale-95'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+          }`}
+          aria-label="Continue"
+        >
+          <CircleArrowRight className="w-5 h-5" />
+        </button>
       </div>
     </div>
   );
