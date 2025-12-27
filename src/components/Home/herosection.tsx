@@ -206,17 +206,44 @@ export const HeroSection = () => {
     );
   };
   
-  // Check if search button should be enabled
-  const isSearchEnabled = () => {
-    return fromPlace?.location && toPlace?.location && travelDate;
+  // Validate location coordinates
+  const isValidCoordinate = (coord: number | undefined): boolean => {
+    if (coord === undefined || coord === null) return false;
+    if (coord === 0) return false;
+    if (Math.abs(coord) > 180) return false; // Valid latitude/longitude range
+    return true;
   };
   
-  // Search rides API call
+  // Check if search button should be enabled
+  const isSearchEnabled = () => {
+    if (!fromPlace?.location || !toPlace?.location || !travelDate) return false;
+    
+    // Validate coordinates
+    const fromLat = fromPlace.location.latitude;
+    const fromLng = fromPlace.location.longitude;
+    const toLat = toPlace.location.latitude;
+    const toLng = toPlace.location.longitude;
+    
+    return (
+      isValidCoordinate(fromLat) &&
+      isValidCoordinate(fromLng) &&
+      isValidCoordinate(toLat) &&
+      isValidCoordinate(toLng)
+    );
+  };
+  
+  // Get short location name
+  const getShortLocation = (location: string): string => {
+    if (!location) return '';
+    // Take first part before comma or first 20 characters
+    const shortName = location.split(',')[0].trim();
+    return shortName.length > 30 ? shortName.substring(0, 30) : shortName;
+  };
+  
+  // Search rides API call - FIXED VERSION
   const searchRides = async () => {
-    if (!isSearchEnabled()) {
-      setError('Please select both pickup and dropoff locations');
-      return;
-    }
+    // Clear previous errors
+    setError('');
     
     if (!isAuthenticated) {
       setError('Please login to search for rides');
@@ -224,8 +251,34 @@ export const HeroSection = () => {
       return;
     }
     
+    // Validate required fields
+    if (!fromPlace?.location || !toPlace?.location) {
+      setError('Please select both pickup and dropoff locations');
+      return;
+    }
+    
+    if (!travelDate) {
+      setError('Please select a travel date');
+      return;
+    }
+    
+    // Validate coordinates
+    const fromLat = fromPlace.location.latitude;
+    const fromLng = fromPlace.location.longitude;
+    const toLat = toPlace.location.latitude;
+    const toLng = toPlace.location.longitude;
+    
+    if (!isValidCoordinate(fromLat) || !isValidCoordinate(fromLng)) {
+      setError('Invalid pickup location coordinates');
+      return;
+    }
+    
+    if (!isValidCoordinate(toLat) || !isValidCoordinate(toLng)) {
+      setError('Invalid dropoff location coordinates');
+      return;
+    }
+    
     setIsLoading(true);
-    setError('');
     
     try {
       const token = user?.token || localStorage.getItem('token') || '';
@@ -236,82 +289,123 @@ export const HeroSection = () => {
         return;
       }
       
-      const params: Record<string, any> = {
-        from_lat: fromPlace?.location?.latitude || 0,
-        from_lng: fromPlace?.location?.longitude || 0,
-        to_lat: toPlace?.location?.latitude || 0,
-        to_lng: toPlace?.location?.longitude || 0,
-        date: travelDate ? travelDate.toISOString().split('T')[0] : '',
-        time_of_day: timeOfDay,
-        no_of_seat: seats,
-        is_full_car: false,
-        sort_by: 'time_asc',
-        page: 1,
-        limit: 10
-      };
+      // Format date to YYYY-MM-DD
+      const formattedDate = travelDate.toISOString().split('T')[0];
       
+      // Build query parameters
+      const params = new URLSearchParams();
+      
+      // Required parameters
+      params.append('from_lat', fromLat.toString());
+      params.append('from_lng', fromLng.toString());
+      params.append('to_lat', toLat.toString());
+      params.append('to_lng', toLng.toString());
+      params.append('date', formattedDate);
+      params.append('no_of_seat', seats.toString());
+      
+      // Optional parameters with defaults
+
+      params.append('is_full_car', 'false');
+      params.append('sort_by', 'time_asc');
+      params.append('page', '1');
+      params.append('limit', '10');
+      
+      // Add short location names
+      const fromShort = getShortLocation(fromLocation);
+      const toShort = getShortLocation(toLocation);
+      
+      if (fromShort) {
+        params.append('from_short_location', fromShort);
+      }
+      
+      if (toShort) {
+        params.append('to_short_location', toShort);
+      }
+      
+      // Add preferences if any
       if (preferences.length > 0) {
-        params.preferences = preferences.join(',');
+        params.append('preferences', preferences.join(','));
       }
       
-      if (fromLocation) {
-        params.from_short_location = fromLocation.split(',')[0];
-      }
-      if (toLocation) {
-        params.to_short_location = toLocation.split(',')[0];
-      }
-      
-      console.log('API Request params:', params);
+      console.log('API Request URL:', `${BASE_URL}/api/rides/search?${params.toString()}`);
       
       const response = await axios.get(`${BASE_URL}/api/rides/search`, {
-        params,
+        params: Object.fromEntries(params),
         headers: {
           'Authorization': `Bearer ${token}`,
-          'accept': 'application/json'
+          'accept': 'application/json',
+          'Content-Type': 'application/json'
         },
-        timeout: 10000
+        timeout: 15000,
+        validateStatus: function (status) {
+          return status < 500; // Resolve only if status code is less than 500
+        }
       });
       
-      console.log('API Response:', response.data);
+      console.log('API Response Status:', response.status);
+      console.log('API Response Data:', response.data);
       
-      if (response.data && response.data.rides) {
-        localStorage.setItem('searchResults', JSON.stringify(response.data));
-        localStorage.setItem('searchParams', JSON.stringify({
-          from: fromLocation,
-          to: toLocation,
-          date: travelDate,
-          timeOfDay,
-          seats,
-          preferences
-        }));
-        
-        navigate('/find-ride', { 
-          state: { 
-            searchResults: response.data,
-            searchParams: params
-          } 
-        });
-      } else {
+      if (response.status === 200) {
+        if (response.data && (response.data.rides || response.data.length > 0)) {
+          localStorage.setItem('searchResults', JSON.stringify(response.data));
+          localStorage.setItem('searchParams', JSON.stringify({
+            from: fromLocation,
+            to: toLocation,
+            date: travelDate,
+            timeOfDay,
+            seats,
+            preferences
+          }));
+          
+          navigate('/find-ride', { 
+            state: { 
+              searchResults: response.data,
+              searchParams: Object.fromEntries(params)
+            } 
+          });
+        } else {
+          setError('No rides found for your search criteria.');
+        }
+      } else if (response.status === 400) {
+        // Log the actual error response from server
+        console.error('Bad Request Details:', response.data);
+        setError(response.data?.message || 'Invalid search parameters. Please check your inputs.');
+      } else if (response.status === 401) {
+        setError('Your session has expired. Please login again.');
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else if (response.status === 404) {
         setError('No rides found for your search criteria.');
+      } else {
+        setError(response.data?.message || `Server error: ${response.status}`);
       }
     } catch (err: any) {
       console.error('Error searching rides:', err);
       
       if (err.response) {
-        if (err.response.status === 401) {
-          setError('Your session has expired. Please login again.');
-          localStorage.removeItem('token');
+        // Server responded with error
+        if (err.response.status === 400) {
+          const errorData = err.response.data;
+          console.error('400 Error Details:', errorData);
+          
+          if (errorData.errors) {
+            // Handle validation errors from server
+            const errorMessages = Object.values(errorData.errors).flat().join(', ');
+            setError(`Validation error: ${errorMessages}`);
+          } else {
+            setError(errorData.message || 'Invalid request parameters.');
+          }
+        } else if (err.response.status === 401) {
+          setError('Authentication failed. Please login again.');
           navigate('/login');
-        } else if (err.response.status === 400) {
-          setError('Invalid search parameters. Please check your inputs.');
-        } else if (err.response.status === 404) {
-          setError('No rides found for your search criteria.');
         } else {
           setError(err.response.data?.message || `Server error: ${err.response.status}`);
         }
       } else if (err.request) {
-        setError('Network error. Please check your internet connection.');
+        // Request made but no response
+        setError('Network error. Please check your internet connection and try again.');
       } else {
+        // Other errors
         setError('Failed to search rides. Please try again.');
       }
     } finally {
@@ -560,37 +654,31 @@ export const HeroSection = () => {
               </div>
 
               {/* 6. SEARCH BUTTON */}
-             <button
-  onClick={searchRides}
-  disabled={!isSearchEnabled() || isLoading}
-  className={`
-    px-2 sm:px-3 py-2.5 rounded-lg text-xs sm:text-sm font-medium
-    transition w-full flex items-center justify-center gap-1
-
-    bg-[#21409A] text-white
-    shadow-sm
-
-    ${(!isSearchEnabled() || isLoading)
-      ? 'cursor-not-allowed'
-      : 'hover:bg-[#1a347d] active:bg-[#152a6a] cursor-pointer'
-    }
-
-    disabled:opacity-100
-  `}
->
-  {isLoading ? (
-    <>
-      <div className="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-white"></div>
-      <span className="ml-1">Searching...</span>
-    </>
-  ) : (
-    <>
-      <FiSearch size={11} className="sm:size-[13px]" />
-      <span className="ml-1">Search Ride</span>
-    </>
-  )}
-</button>
-
+              <button
+                onClick={searchRides}
+                disabled={!isSearchEnabled() || isLoading}
+                className={`
+                  px-2 sm:px-3 py-2.5 rounded-lg text-xs sm:text-sm font-medium
+                  transition w-full flex items-center justify-center gap-1
+                  ${isSearchEnabled() && !isLoading
+                    ? 'bg-[#21409A] text-white hover:bg-[#1a347d] active:bg-[#152a6a] cursor-pointer'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }
+                  shadow-sm
+                `}
+              >
+                {isLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-white"></div>
+                    <span className="ml-1">Searching...</span>
+                  </>
+                ) : (
+                  <>
+                    <FiSearch size={11} className="sm:size-[13px]" />
+                    <span className="ml-1">Search Ride</span>
+                  </>
+                )}
+              </button>
             </div>
 
             {/* Error Message */}
@@ -660,16 +748,28 @@ export const HeroSection = () => {
             {(fromPlace || toPlace) && (
               <div className="mt-2 text-xs text-gray-500 space-y-0.5">
                 {fromPlace?.location && (
-                  <div className="break-words truncate">From: {fromLocation.split(',')[0]}</div>
+                  <div className="break-words truncate">
+                    From: {getShortLocation(fromLocation)} 
+                    {fromPlace.location.latitude && fromPlace.location.longitude && 
+                      ` (${fromPlace.location.latitude.toFixed(4)}, ${fromPlace.location.longitude.toFixed(4)})`
+                    }
+                  </div>
                 )}
                 {toPlace?.location && (
-                  <div className="break-words truncate">To: {toLocation.split(',')[0]}</div>
+                  <div className="break-words truncate">
+                    To: {getShortLocation(toLocation)}
+                    {toPlace.location.latitude && toPlace.location.longitude && 
+                      ` (${toPlace.location.latitude.toFixed(4)}, ${toPlace.location.longitude.toFixed(4)})`
+                    }
+                  </div>
                 )}
               </div>
             )}
+            
+       
+           
           </div>
         </div>
-
       </div>
     </section>
   );

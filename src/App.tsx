@@ -4,7 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { LocationProvider } from "./contexts/LocationContext";
 import { LocationModal } from "./components/modals/LocationModal";
-import { Navbar } from "./components/layout/Navbar"; // IMPORT Navbar
+import { Navbar } from "./components/layout/Navbar";
 
 // Pages
 import Welcome from "./pages/Welcome";
@@ -30,9 +30,8 @@ import Wallet from "./components/wallet/wallet";
 import WithdrawMoney from "./components/wallet/withdraw";
 import AddPaymentMethod from "./components/wallet/addpaymentmethod";
 import DriverManagementMainScreen from "./components/Profile/DriverManagementMainScreen";
-import FindRideStep3 from "./components/Findride/RideCard";
-import FindRideSuccess from "./components/Findride/ConfirmRequestPanel";
 import { MyRidesPanel } from "./pages/Myridepanel";
+import NotificationsPage from "./components/Notification/NotificationPage";
 
 const queryClient = new QueryClient();
 
@@ -85,48 +84,52 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
 };
 
 const AppRoutes = () => {
-  const { isAuthenticated } = useAuth();
-  
   return (
-    <AppLayout>
-      <Routes>
-        {/* Welcome Page - No Navbar */}
-        <Route path="/welcome" element={<Welcome />} />
-        
-        {/* Public Routes - No Navbar */}
-        <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-        <Route path="/verify-login-otp" element={<PublicRoute><VerifyLoginOTP /></PublicRoute>} />
-        <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
-        <Route path="/set-pin" element={<PublicRoute><SetPin /></PublicRoute>} />
-        <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
-        
-        {/* Protected Routes - Main App (with Navbar) */}
-        <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-        <Route path="/find-ride" element={<ProtectedRoute><FindRide /></ProtectedRoute>} />
-       
-        <Route path="/my-rides" element={<ProtectedRoute><MyRidesPanel /></ProtectedRoute>} />
-        <Route path="/offer-ride1" element={<ProtectedRoute><OfferRide1 /></ProtectedRoute>} />
-        <Route path="/offer-ride2" element={<ProtectedRoute><OfferRide2 /></ProtectedRoute>} />
-        <Route path="/offer-ride3" element={<ProtectedRoute><OfferRide3 /></ProtectedRoute>} />
-        <Route path="/offer-ride4" element={<ProtectedRoute><OfferRide4 /></ProtectedRoute>} />
-        <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
-        <Route path="/withdraw" element={<ProtectedRoute><WithdrawMoney /></ProtectedRoute>} />
-        <Route path="/add-payment-method" element={<ProtectedRoute><AddPaymentMethod /></ProtectedRoute>} />
-        <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-        <Route path="/basic-details" element={<ProtectedRoute><BasicDetails /></ProtectedRoute>} />
-        <Route path="/contact-verification" element={<ProtectedRoute><Contact /></ProtectedRoute>} />
-        <Route path="/id-proof" element={<ProtectedRoute><IDProof /></ProtectedRoute>} />
-        <Route path="/vehicle-management" element={<ProtectedRoute><VehicleManagement /></ProtectedRoute>} />
-        <Route path="/driver-management" element={<ProtectedRoute><DriverManagement /></ProtectedRoute>} />
-        <Route path="/drivers" element={<ProtectedRoute><DriverManagementMainScreen /></ProtectedRoute>} />
-        
-        {/* Redirect root to welcome */}
-        <Route path="/" element={<Navigate to="/welcome" replace />} />
-        
-        {/* 404 */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </AppLayout>
+    <Routes>
+      {/* Welcome Page */}
+      <Route path="/welcome" element={<Welcome />} />
+      
+      {/* Public Routes */}
+      <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+      <Route path="/verify-login-otp" element={<PublicRoute><VerifyLoginOTP /></PublicRoute>} />
+      <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
+      <Route path="/set-pin" element={<PublicRoute><SetPin /></PublicRoute>} />
+      <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+      
+      {/* Notifications Page - Full page without separate panel component */}
+      <Route path="/notifications" element={
+        <ProtectedRoute>
+          <AppLayout>
+            <NotificationsPage />
+          </AppLayout>
+        </ProtectedRoute>
+      } />
+      
+      {/* Protected Routes - Main App */}
+      <Route path="/" element={<ProtectedRoute><AppLayout><Index /></AppLayout></ProtectedRoute>} />
+      <Route path="/find-ride" element={<ProtectedRoute><AppLayout><FindRide /></AppLayout></ProtectedRoute>} />
+      <Route path="/my-rides" element={<ProtectedRoute><AppLayout><MyRidesPanel /></AppLayout></ProtectedRoute>} />
+      <Route path="/offer-ride1" element={<ProtectedRoute><AppLayout><OfferRide1 /></AppLayout></ProtectedRoute>} />
+      <Route path="/offer-ride2" element={<ProtectedRoute><AppLayout><OfferRide2 /></AppLayout></ProtectedRoute>} />
+      <Route path="/offer-ride3" element={<ProtectedRoute><AppLayout><OfferRide3 /></AppLayout></ProtectedRoute>} />
+      <Route path="/offer-ride4" element={<ProtectedRoute><AppLayout><OfferRide4 /></AppLayout></ProtectedRoute>} />
+      <Route path="/wallet" element={<ProtectedRoute><AppLayout><Wallet /></AppLayout></ProtectedRoute>} />
+      <Route path="/withdraw" element={<ProtectedRoute><AppLayout><WithdrawMoney /></AppLayout></ProtectedRoute>} />
+      <Route path="/add-payment-method" element={<ProtectedRoute><AppLayout><AddPaymentMethod /></AppLayout></ProtectedRoute>} />
+      <Route path="/profile" element={<ProtectedRoute><AppLayout><Profile /></AppLayout></ProtectedRoute>} />
+      <Route path="/basic-details" element={<ProtectedRoute><AppLayout><BasicDetails /></AppLayout></ProtectedRoute>} />
+      <Route path="/contact-verification" element={<ProtectedRoute><AppLayout><Contact /></AppLayout></ProtectedRoute>} />
+      <Route path="/id-proof" element={<ProtectedRoute><AppLayout><IDProof /></AppLayout></ProtectedRoute>} />
+      <Route path="/vehicle-management" element={<ProtectedRoute><AppLayout><VehicleManagement /></AppLayout></ProtectedRoute>} />
+      <Route path="/driver-management" element={<ProtectedRoute><AppLayout><DriverManagement /></AppLayout></ProtectedRoute>} />
+      <Route path="/drivers" element={<ProtectedRoute><AppLayout><DriverManagementMainScreen /></AppLayout></ProtectedRoute>} />
+      
+      {/* Redirect root to welcome */}
+      <Route path="/" element={<Navigate to="/welcome" replace />} />
+      
+      {/* 404 */}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   );
 };
 

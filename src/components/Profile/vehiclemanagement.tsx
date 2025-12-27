@@ -179,11 +179,11 @@ const VehicleManagement: React.FC = () => {
   const startAdding = async () => {
     const hasVerifiedIdProof = await checkIdProofVerification();
     
-    if (!hasVerifiedIdProof) {
-      // Show modal if ID proof is not verified
-      setShowIdProofModal(true);
-      return;
-    }
+    // if (!hasVerifiedIdProof) {
+    //   // Show modal if ID proof is not verified
+    //   setShowIdProofModal(true);
+    //   return;
+    // }
     
     // If ID proof is verified, proceed with adding vehicle
     setEditingVehicle(null);

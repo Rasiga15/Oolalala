@@ -4,9 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { getUserDocuments, uploadDocuments, Document } from '@/services/documentApi';
 import { useAuth } from '@/contexts/AuthContext';
-// Import ProfileApiService
 import ProfileApiService from '@/services/profileApi';
-// Import the useProfile hook
 import { useProfile } from '../../pages/Profile';
 
 interface DocumentType {
@@ -21,7 +19,6 @@ interface DocumentType {
 const IDProof: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  // Use the central profile data
   const { profileData: centralProfileData } = useProfile();
   const [selectedDocument, setSelectedDocument] = useState<string>('aadhaar');
   const [documentNumber, setDocumentNumber] = useState('');
@@ -31,6 +28,7 @@ const IDProof: React.FC = () => {
   const [serverError, setServerError] = useState<string | null>(null);
   const [publishRide, setPublishRide] = useState<boolean>(false);
   const [hasVerifiedAadhaar, setHasVerifiedAadhaar] = useState<boolean>(false);
+  const [hasVerifiedDL, setHasVerifiedDL] = useState<boolean>(false);
   
   useEffect(() => {
     loadProfileAndDocuments();
@@ -60,17 +58,41 @@ const IDProof: React.FC = () => {
       setExistingDocuments(docs);
       
       // Check if user has verified Aadhaar
-      const hasVerified = docs.some(doc => 
+      const hasVerifiedAadhaar = docs.some(doc => 
         doc.documentType === 'aadhaar' && doc.verificationStatus === 'verified'
       );
-      setHasVerifiedAadhaar(hasVerified);
+      setHasVerifiedAadhaar(hasVerifiedAadhaar);
       
-      // If user has verified Aadhaar, automatically select Driving License (if publishRide is true)
-      if (hasVerified && publishRide) {
-        setSelectedDocument('driving');
-        const dlDoc = docs.find(doc => doc.documentType === 'driving_license');
-        if (dlDoc) {
-          setDocumentNumber(dlDoc.documentNumber);
+      // Check if user has verified Driving License
+      const hasVerifiedDL = docs.some(doc => 
+        doc.documentType === 'driving_license' && doc.verificationStatus === 'verified'
+      );
+      setHasVerifiedDL(hasVerifiedDL);
+      
+      // Auto-select document based on verification status and publishRide
+      if (publishRide) {
+        // If publishRide is true, prioritize Driving License
+        if (!hasVerifiedDL) {
+          setSelectedDocument('driving');
+          const dlDoc = docs.find(doc => doc.documentType === 'driving_license');
+          if (dlDoc) {
+            setDocumentNumber(dlDoc.documentNumber);
+          }
+        } else if (!hasVerifiedAadhaar) {
+          setSelectedDocument('aadhaar');
+          const aadhaarDoc = docs.find(doc => doc.documentType === 'aadhaar');
+          if (aadhaarDoc) {
+            setDocumentNumber(aadhaarDoc.documentNumber);
+          }
+        }
+      } else {
+        // If publishRide is false, only Aadhaar matters
+        if (!hasVerifiedAadhaar) {
+          setSelectedDocument('aadhaar');
+          const aadhaarDoc = docs.find(doc => doc.documentType === 'aadhaar');
+          if (aadhaarDoc) {
+            setDocumentNumber(aadhaarDoc.documentNumber);
+          }
         }
       }
       
@@ -85,7 +107,7 @@ const IDProof: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [user?.token, centralProfileData, logout, navigate, publishRide]);
+  }, [user?.token, centralProfileData, logout, navigate]);
 
   // Define document types based on publishRide value
   const getDocumentTypes = (): DocumentType[] => {
@@ -96,11 +118,11 @@ const IDProof: React.FC = () => {
         icon: <Shield size={18} className="text-primary" />,
         title: 'Aadhaar Card',
         description: 'UIDAI Verified',
-        required: true, // Aadhaar is always required
+        required: !publishRide, // Aadhaar is required only when publishRide is false
       },
     ];
 
-    // If publishRide is true, add Driving License
+    // If publishRide is true, add Driving License as mandatory
     if (publishRide) {
       baseDocuments.push({
         id: 'driving',
@@ -108,7 +130,7 @@ const IDProof: React.FC = () => {
         icon: <FileText size={18} className="text-muted-foreground" />,
         title: 'Driving License',
         description: 'RTO Verified',
-        required: true, // Required when publishRide is true
+        required: true, // Driving License is mandatory when publishRide is true
       });
     }
 
@@ -211,6 +233,12 @@ const IDProof: React.FC = () => {
         toast.error('Please enter a valid driving license number (e.g., TN01AB655312345) - 2 letters followed by 13 alphanumeric characters');
         return;
       }
+      
+      // Check if DL is already verified
+      if (hasVerifiedDL) {
+        toast.error('Your Driving License is already verified and cannot be changed');
+        return;
+      }
     }
 
     setIsUploading(true);
@@ -241,22 +269,43 @@ const IDProof: React.FC = () => {
         // Refresh documents
         await loadProfileAndDocuments();
         
-        // Navigate based on publishRide status and document type
-        setTimeout(() => {
-          if (selectedDocument === 'aadhaar' && publishRide) {
-            // If user uploaded Aadhaar and publishRide is true, stay on page for DL upload
+        // Determine which documents still need to be uploaded
+        const updatedDocs = await getUserDocuments(user.token);
+        const hasVerifiedAadhaarNow = updatedDocs.some(doc => 
+          doc.documentType === 'aadhaar' && doc.verificationStatus === 'verified'
+        );
+        const hasVerifiedDLNow = updatedDocs.some(doc => 
+          doc.documentType === 'driving_license' && doc.verificationStatus === 'verified'
+        );
+        
+        // Check if all required documents are uploaded
+        if (publishRide) {
+          // When publishRide is true, only DL is mandatory
+          if (!hasVerifiedDLNow) {
+            // DL not verified yet, stay on page for DL
             setSelectedDocument('driving');
             setDocumentNumber('');
-            toast.info('Now please enter your Driving License details');
+            toast.info('Please wait for Driving License verification');
           } else {
-            // Otherwise navigate appropriately
-            if (publishRide) {
-              navigate('/vehicle-management'); // Go to Vehicle Management if publishRide is true
-            } else {
-              navigate('/profile'); // Go to Profile if publishRide is false
-            }
+            // DL is verified, navigate to vehicle management
+            setTimeout(() => {
+              navigate('/vehicle-management');
+            }, 1500);
           }
-        }, 1500);
+        } else {
+          // When publishRide is false, Aadhaar is mandatory
+          if (!hasVerifiedAadhaarNow) {
+            // Aadhaar not verified yet, stay on page
+            setSelectedDocument('aadhaar');
+            setDocumentNumber('');
+            toast.info('Please wait for Aadhaar verification');
+          } else {
+            // Aadhaar is verified, navigate to profile
+            setTimeout(() => {
+              navigate('/profile');
+            }, 1500);
+          }
+        }
       } else {
         console.error('Upload failed with result:', result);
         toast.error(result.message || result.error || 'Failed to save document');
@@ -363,30 +412,57 @@ const IDProof: React.FC = () => {
     );
   }
 
+  // Check if all required documents are already verified
+  const allRequiredDocumentsVerified = publishRide ? hasVerifiedDL : hasVerifiedAadhaar;
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
     
 
       {/* Content */}
       <main className="pt-20 pb-8 px-4 md:px-6">
         <div className="max-w-5xl mx-auto">
-         
-          <p className="text-center text-muted-foreground mb-8">
-            {publishRide 
-              ? hasVerifiedAadhaar 
-                ? 'Your Aadhaar is already verified. Please submit your Driving License for verification.'
-                : 'As a partner, you need to submit both Aadhaar and Driving License for verification.'
-              : 'Please submit your Aadhaar Card for identity verification.'}
-          </p>
+          <div className="text-center mb-10">
+            <h2 className="text-2xl font-bold text-foreground mb-2">
+              Verify Your Identity
+            </h2>
+            <p className="text-center text-muted-foreground mb-8">
+              {publishRide 
+                ? hasVerifiedDL
+                  ? 'Your Driving License is already verified. You can optionally upload Aadhaar for additional verification.'
+                  : 'As a partner, you need to submit your Driving License for verification. Aadhaar is optional.'
+                : 'Please submit your Aadhaar Card for identity verification.'}
+            </p>
+          </div>
 
-          {/* Warning for already verified Aadhaar */}
-          {hasVerifiedAadhaar && selectedDocument === 'aadhaar' && (
+          {/* Warning for already verified documents */}
+          {(hasVerifiedAadhaar && selectedDocument === 'aadhaar') || 
+           (hasVerifiedDL && selectedDocument === 'driving') && (
             <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-2 animate-fadeIn">
               <AlertCircle className="text-yellow-500" size={18} />
               <p className="text-yellow-700 text-sm">
-                Your Aadhaar is already verified and cannot be changed. {publishRide && 'Please select Driving License to continue.'}
+                {selectedDocument === 'aadhaar' 
+                  ? 'Your Aadhaar is already verified and cannot be changed.'
+                  : 'Your Driving License is already verified and cannot be changed.'}
               </p>
+            </div>
+          )}
+
+          {/* All documents verified message */}
+          {allRequiredDocumentsVerified && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 animate-fadeIn">
+              <Check className="text-green-500" size={18} />
+              <p className="text-green-700 text-sm">
+                {publishRide
+                  ? 'Your Driving License is verified. You can now proceed to Vehicle Management.'
+                  : 'Your Aadhaar is verified. Your identity verification is complete.'}
+              </p>
+              <button
+                onClick={() => navigate(publishRide ? '/vehicle-management' : '/profile')}
+                className="ml-auto bg-green-600 text-white text-sm px-4 py-1 rounded hover:bg-green-700 transition-colors"
+              >
+                {publishRide ? 'Go to Vehicle Management' : 'Go to Profile'}
+              </button>
             </div>
           )}
 
@@ -406,14 +482,16 @@ const IDProof: React.FC = () => {
                 {documentTypes.map((doc) => {
                   const existingDoc = getExistingDocument(doc.apiKey);
                   const isSelected = selectedDocument === doc.id;
-                  const isDisabled = doc.id === 'aadhaar' && hasVerifiedAadhaar;
+                  const isVerified = existingDoc?.verificationStatus === 'verified';
+                  const isDisabled = (doc.id === 'aadhaar' && hasVerifiedAadhaar) || 
+                                    (doc.id === 'driving' && hasVerifiedDL);
                   
                   return (
                     <button
                       key={doc.id}
                       onClick={() => {
                         if (isDisabled) {
-                          toast.info('Your Aadhaar is already verified. Please upload Driving License.');
+                          toast.info(`Your ${doc.title} is already verified.`);
                           return;
                         }
                         setSelectedDocument(doc.id);
@@ -448,6 +526,11 @@ const IDProof: React.FC = () => {
                           {doc.required && !existingDoc && (
                             <p className="text-xs text-red-600 mt-1">
                               Required
+                            </p>
+                          )}
+                          {!doc.required && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              Optional
                             </p>
                           )}
                           {isDisabled && (
@@ -517,7 +600,9 @@ const IDProof: React.FC = () => {
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   {selectedDocument === 'aadhaar' && hasVerifiedAadhaar 
-                    ? 'Your Aadhaar is already verified. Please select Driving License to continue.'
+                    ? 'Your Aadhaar is already verified. You can select Driving License to continue.'
+                    : selectedDocument === 'driving' && hasVerifiedDL
+                    ? 'Your Driving License is already verified. You can select Aadhaar for optional verification.'
                     : 'Enter your document information below'}
                 </p>
               </div>
@@ -532,10 +617,15 @@ const IDProof: React.FC = () => {
                     value={documentNumber}
                     onChange={handleDocumentNumberChange}
                     className={`w-full h-12 px-4 bg-background border border-border rounded-lg text-base pr-12 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-50 ${
-                      selectedDocument === 'aadhaar' && hasVerifiedAadhaar ? 'cursor-not-allowed' : ''
+                      (selectedDocument === 'aadhaar' && hasVerifiedAadhaar) || 
+                      (selectedDocument === 'driving' && hasVerifiedDL) 
+                      ? 'cursor-not-allowed' : ''
                     }`}
-                    disabled={isUploading || (selectedDocument === 'aadhaar' && hasVerifiedAadhaar)}
-                    autoFocus={!(selectedDocument === 'aadhaar' && hasVerifiedAadhaar)}
+                    disabled={isUploading || 
+                      (selectedDocument === 'aadhaar' && hasVerifiedAadhaar) || 
+                      (selectedDocument === 'driving' && hasVerifiedDL)}
+                    autoFocus={!((selectedDocument === 'aadhaar' && hasVerifiedAadhaar) || 
+                               (selectedDocument === 'driving' && hasVerifiedDL))}
                     maxLength={selectedDocument === 'aadhaar' ? 14 : 17}
                   />
                   {isInputValid() && !serverError && (
@@ -575,7 +665,9 @@ const IDProof: React.FC = () => {
               {/* Save & Continue Button */}
               <button
                 onClick={handleSaveAndContinue}
-                disabled={isUploading || !isInputValid() || (selectedDocument === 'aadhaar' && hasVerifiedAadhaar)}
+                disabled={isUploading || !isInputValid() || 
+                  (selectedDocument === 'aadhaar' && hasVerifiedAadhaar) ||
+                  (selectedDocument === 'driving' && hasVerifiedDL)}
                 className="w-full h-12 px-6 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-base"
               >
                 {isUploading ? (
@@ -583,12 +675,32 @@ const IDProof: React.FC = () => {
                     <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
                     <span>Saving Document...</span>
                   </div>
-                ) : selectedDocument === 'aadhaar' && hasVerifiedAadhaar ? (
-                  'Aadhaar Already Verified'
+                ) : (selectedDocument === 'aadhaar' && hasVerifiedAadhaar) || 
+                    (selectedDocument === 'driving' && hasVerifiedDL) ? (
+                  'Document Already Verified'
                 ) : (
                   'Save & Continue'
                 )}
               </button>
+
+              {/* Optional skip button for non-required documents */}
+              {!publishRide && hasVerifiedAadhaar && (
+                <button
+                  onClick={() => navigate('/profile')}
+                  className="w-full h-12 px-6 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-all duration-200"
+                >
+                  Skip to Profile
+                </button>
+              )}
+              
+              {publishRide && hasVerifiedDL && (
+                <button
+                  onClick={() => navigate('/vehicle-management')}
+                  className="w-full h-12 px-6 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-all duration-200"
+                >
+                  Skip to Vehicle Management
+                </button>
+              )}
             </div>
           </div>
         </div>

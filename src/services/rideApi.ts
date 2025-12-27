@@ -27,7 +27,7 @@ export interface OfferRidePayload {
     coordinates: [number, number];
   };
   vehicle_id: number;
-  driver_id: number; // IMPORTANT: This must be included
+  // driver_id: number; 
   seat_quantity: number;
   departureTime: string; // ISO string
   fare_details: {
@@ -47,7 +47,7 @@ export interface OfferRideResponse {
   record_status: string;
   ride_id: number;
   partner_id: number;
-  driver_id: number | null;
+  // driver_id: number | null;
   vehicle_id: number;
   start_address: string;
   start_lat: number;
@@ -196,7 +196,7 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
         coordinates: payload.destination.coordinates
       },
       vehicle_id: payload.vehicle_id,
-      driver_id: payload.driver_id, // CRITICAL: Must be included
+      // driver_id: payload.driver_id, // CRITICAL: Must be included
       seat_quantity: payload.seat_quantity,
       departureTime: payload.departureTime,
       fare_details: payload.fare_details,
@@ -261,7 +261,7 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
 export interface Vehicle {
   id: number;
   partner_id: number;
-  driver_id: number | null;
+  // driver_id: number | null;
   vehicle_code: string;
   vehicle_type: string;
   brand: string | null;
