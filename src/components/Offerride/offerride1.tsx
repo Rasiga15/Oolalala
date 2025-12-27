@@ -66,7 +66,7 @@ const checkRideCreationStatus = async (): Promise<RideCreationStatus> => {
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch('http://18.61.216.57:4500/api/profile/ride-creation-status', {
+    const response = await fetch('https://api-dev.oolalala.com/api/profile/ride-creation-status', {
       method: 'GET',
       headers: {
         'accept': 'application/json',
