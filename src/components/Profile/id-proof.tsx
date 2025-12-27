@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronLeft, Check, Shield, FileText, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { ChevronLeft, Shield, FileText, Check, AlertCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { useAuth } from '@/contexts/AuthContext';
 import { getUserDocuments, uploadDocuments, Document } from '@/services/documentApi';
-import { BASE_URL } from '@/config/api';
+import { useAuth } from '@/contexts/AuthContext';
+// Import ProfileApiService
+import ProfileApiService from '@/services/profileApi';
+// Import the useProfile hook
+import { useProfile } from '../../pages/Profile';
 
 interface DocumentType {
   id: string;
@@ -14,85 +15,124 @@ interface DocumentType {
   icon: React.ReactNode;
   title: string;
   description: string;
+  required: boolean;
 }
 
 const IDProof: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  // Use the central profile data
+  const { profileData: centralProfileData } = useProfile();
   const [selectedDocument, setSelectedDocument] = useState<string>('aadhaar');
   const [documentNumber, setDocumentNumber] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [existingDocuments, setExistingDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [publishRide, setPublishRide] = useState<boolean>(false);
+  const [hasVerifiedAadhaar, setHasVerifiedAadhaar] = useState<boolean>(false);
   
   useEffect(() => {
-    loadDocuments();
-  }, [user?.token]);
+    loadProfileAndDocuments();
+  }, [user?.token, centralProfileData]);
 
-  const loadDocuments = async () => {
-    if (user?.token) {
-      try {
-        setLoading(true);
-        const docs = await getUserDocuments(user.token);
-        console.log('Loaded documents:', docs);
-        setExistingDocuments(docs);
-      } catch (error: any) {
-        console.error('Failed to load documents:', error);
-        
-        // Handle unauthorized error
-        if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
-          toast.error('Session expired. Please login again.');
-          logout();
-          navigate('/login');
+  const loadProfileAndDocuments = useCallback(async () => {
+    if (!user?.token) return;
+
+    try {
+      setLoading(true);
+      
+      // Use central profile data to check publishRide status
+      if (centralProfileData) {
+        console.log('Using central profile data:', centralProfileData);
+        setPublishRide(centralProfileData.publishRide || false);
+      } else {
+        // Fallback to API call if central data not available
+        const basicInfoResponse = await ProfileApiService.getBasicProfile();
+        if (basicInfoResponse.success && basicInfoResponse.data) {
+          setPublishRide(basicInfoResponse.data.publishRide || false);
         }
-      } finally {
-        setLoading(false);
       }
+      
+      // Load existing documents
+      const docs = await getUserDocuments(user.token);
+      console.log('Loaded documents:', docs);
+      setExistingDocuments(docs);
+      
+      // Check if user has verified Aadhaar
+      const hasVerified = docs.some(doc => 
+        doc.documentType === 'aadhaar' && doc.verificationStatus === 'verified'
+      );
+      setHasVerifiedAadhaar(hasVerified);
+      
+      // If user has verified Aadhaar, automatically select Driving License (if publishRide is true)
+      if (hasVerified && publishRide) {
+        setSelectedDocument('driving');
+        const dlDoc = docs.find(doc => doc.documentType === 'driving_license');
+        if (dlDoc) {
+          setDocumentNumber(dlDoc.documentNumber);
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('Failed to load data:', error);
+      
+      if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
+        toast.error('Session expired. Please login again.');
+        logout();
+        navigate('/login');
+      }
+    } finally {
+      setLoading(false);
     }
+  }, [user?.token, centralProfileData, logout, navigate, publishRide]);
+
+  // Define document types based on publishRide value
+  const getDocumentTypes = (): DocumentType[] => {
+    const baseDocuments: DocumentType[] = [
+      {
+        id: 'aadhaar',
+        apiKey: 'aadhaar',
+        icon: <Shield size={18} className="text-primary" />,
+        title: 'Aadhaar Card',
+        description: 'UIDAI Verified',
+        required: true, // Aadhaar is always required
+      },
+    ];
+
+    // If publishRide is true, add Driving License
+    if (publishRide) {
+      baseDocuments.push({
+        id: 'driving',
+        apiKey: 'driving_license',
+        icon: <FileText size={18} className="text-muted-foreground" />,
+        title: 'Driving License',
+        description: 'RTO Verified',
+        required: true, // Required when publishRide is true
+      });
+    }
+
+    return baseDocuments;
   };
 
-  const documentTypes: DocumentType[] = [
-    {
-      id: 'aadhaar',
-      apiKey: 'aadhaar',
-      icon: <Shield size={18} className="text-primary" />,
-      title: 'Aadhaar Card',
-      description: 'UIDAI Verified',
-    },
-    {
-      id: 'driving',
-      apiKey: 'driving_license',
-      icon: <FileText size={18} className="text-muted-foreground" />,
-      title: 'Driving License',
-      description: 'RTO Verified',
-    },
-  ];
+  const documentTypes = getDocumentTypes();
 
   const formatAadhar = (value: string) => {
-    // Remove all non-digit characters
     const digits = value.replace(/\D/g, '');
-    // Take only first 12 digits
     const limited = digits.slice(0, 12);
-    // Format as 4-4-4
     const parts = limited.match(/.{1,4}/g);
     return parts ? parts.join(' ') : limited;
   };
 
   const formatDrivingLicense = (value: string) => {
-    // Remove all spaces
     let cleaned = value.replace(/\s/g, '');
     
-    // If length is less than 2, just return uppercase
     if (cleaned.length <= 2) {
       return cleaned.toUpperCase();
     }
     
-    // Split into first 2 characters (state code) and rest
     const firstTwo = cleaned.slice(0, 2).toUpperCase();
     const rest = cleaned.slice(2);
-    
-    // Remove non-alphanumeric from rest and take only first 13 characters
     const restCleaned = rest.replace(/[^A-Za-z0-9]/g, '').slice(0, 13);
     
     return firstTwo + restCleaned;
@@ -102,39 +142,31 @@ const IDProof: React.FC = () => {
     const value = e.target.value;
     
     if (selectedDocument === 'aadhaar') {
-      // For Aadhaar: allow only digits and format
       setDocumentNumber(formatAadhar(value));
     } else if (selectedDocument === 'driving') {
-      // For Driving License: allow alphanumeric and format
       setDocumentNumber(formatDrivingLicense(value));
     }
     
-    // Clear any server error when user starts typing
     if (serverError) setServerError(null);
   };
 
   const validateAadhaar = (value: string): boolean => {
-    // Remove spaces and check if exactly 12 digits
     const cleanValue = value.replace(/\s/g, '');
     return /^\d{12}$/.test(cleanValue);
   };
 
   const validateDrivingLicense = (value: string): boolean => {
-    // Remove spaces
     const cleanValue = value.replace(/\s/g, '');
     
-    // Should be exactly 15 characters
     if (cleanValue.length !== 15) {
       return false;
     }
     
-    // First 2 characters should be uppercase letters (state code)
     const firstTwo = cleanValue.slice(0, 2);
     if (!/^[A-Z]{2}$/.test(firstTwo)) {
       return false;
     }
     
-    // Remaining 13 characters should be alphanumeric
     const rest = cleanValue.slice(2);
     if (!/^[A-Z0-9]{13}$/.test(rest)) {
       return false;
@@ -168,6 +200,12 @@ const IDProof: React.FC = () => {
         toast.error('Please enter a valid 12-digit Aadhaar number (digits only)');
         return;
       }
+      
+      // Check if Aadhaar is already verified
+      if (hasVerifiedAadhaar) {
+        toast.error('Your Aadhaar is already verified and cannot be changed');
+        return;
+      }
     } else if (selectedDocument === 'driving') {
       if (!validateDrivingLicense(documentNumber)) {
         toast.error('Please enter a valid driving license number (e.g., TN01AB655312345) - 2 letters followed by 13 alphanumeric characters');
@@ -179,23 +217,18 @@ const IDProof: React.FC = () => {
     setServerError(null);
     
     try {
-      // Prepare upload data - Swagger specification പ്രകാരം
       const uploadData: any = {};
 
       if (selectedDocument === 'aadhaar') {
         uploadData.aadhaarNumber = cleanNumber;
-        // Note: File upload optional based on Swagger
       } else if (selectedDocument === 'driving') {
-        // Only driving license number - no expiry date needed
         uploadData.drivingLicenceNumber = cleanNumber;
-        // No file upload for driving license (optional)
       }
 
       console.log('Attempting to upload document:', {
         type: selectedDoc.apiKey,
         number: cleanNumber,
         uploadData: uploadData,
-        endpoint: `${BASE_URL}/api/profile/documents`
       });
       
       const result = await uploadDocuments(user.token, uploadData);
@@ -206,11 +239,23 @@ const IDProof: React.FC = () => {
         toast.success(result.message || 'Document saved successfully!');
         
         // Refresh documents
-        await loadDocuments();
+        await loadProfileAndDocuments();
         
-        // Navigate back after success
+        // Navigate based on publishRide status and document type
         setTimeout(() => {
-          navigate('/profile');
+          if (selectedDocument === 'aadhaar' && publishRide) {
+            // If user uploaded Aadhaar and publishRide is true, stay on page for DL upload
+            setSelectedDocument('driving');
+            setDocumentNumber('');
+            toast.info('Now please enter your Driving License details');
+          } else {
+            // Otherwise navigate appropriately
+            if (publishRide) {
+              navigate('/vehicle-management'); // Go to Vehicle Management if publishRide is true
+            } else {
+              navigate('/profile'); // Go to Profile if publishRide is false
+            }
+          }
         }, 1500);
       } else {
         console.error('Upload failed with result:', result);
@@ -277,30 +322,10 @@ const IDProof: React.FC = () => {
     }
   };
 
-  // Check if document exists
   const getExistingDocument = (docType: string) => {
     return existingDocuments.find(doc => doc.documentType === docType);
   };
 
-  // Format date for display
-  const formatDateForDisplay = (dateStr: string | null): string => {
-    if (!dateStr || dateStr === 'null' || dateStr === '') return 'Not set';
-    
-    try {
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return dateStr;
-      
-      return date.toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric'
-      });
-    } catch (error) {
-      return dateStr;
-    }
-  };
-
-  // Check if current input is valid
   const isInputValid = () => {
     if (!documentNumber) return false;
     
@@ -313,6 +338,20 @@ const IDProof: React.FC = () => {
     return false;
   };
 
+  // Reset document number when switching between documents
+  useEffect(() => {
+    const existingDoc = getExistingDocument(
+      selectedDocument === 'aadhaar' ? 'aadhaar' : 'driving_license'
+    );
+    
+    if (existingDoc) {
+      setDocumentNumber(existingDoc.documentNumber);
+    } else {
+      setDocumentNumber('');
+    }
+  }, [selectedDocument, existingDocuments]);
+
+  // Show loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -327,21 +366,29 @@ const IDProof: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-40 flex items-center px-4 md:px-6 py-4 border-b border-border bg-card">
-        <Link to="/profile" className="p-2 hover:bg-secondary rounded-full transition-colors">
-          <ChevronLeft size={24} className="text-foreground" />
-        </Link>
-        <h1 className="flex-1 text-center text-lg font-semibold text-foreground pr-10">
-          ID Proof
-        </h1>
-      </header>
+    
 
       {/* Content */}
       <main className="pt-20 pb-8 px-4 md:px-6">
         <div className="max-w-5xl mx-auto">
+         
           <p className="text-center text-muted-foreground mb-8">
-            Choose one document to verify your identity.
+            {publishRide 
+              ? hasVerifiedAadhaar 
+                ? 'Your Aadhaar is already verified. Please submit your Driving License for verification.'
+                : 'As a partner, you need to submit both Aadhaar and Driving License for verification.'
+              : 'Please submit your Aadhaar Card for identity verification.'}
           </p>
+
+          {/* Warning for already verified Aadhaar */}
+          {hasVerifiedAadhaar && selectedDocument === 'aadhaar' && (
+            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-2 animate-fadeIn">
+              <AlertCircle className="text-yellow-500" size={18} />
+              <p className="text-yellow-700 text-sm">
+                Your Aadhaar is already verified and cannot be changed. {publishRide && 'Please select Driving License to continue.'}
+              </p>
+            </div>
+          )}
 
           {/* Server Error Message */}
           {serverError && (
@@ -359,25 +406,27 @@ const IDProof: React.FC = () => {
                 {documentTypes.map((doc) => {
                   const existingDoc = getExistingDocument(doc.apiKey);
                   const isSelected = selectedDocument === doc.id;
+                  const isDisabled = doc.id === 'aadhaar' && hasVerifiedAadhaar;
                   
                   return (
                     <button
                       key={doc.id}
                       onClick={() => {
+                        if (isDisabled) {
+                          toast.info('Your Aadhaar is already verified. Please upload Driving License.');
+                          return;
+                        }
                         setSelectedDocument(doc.id);
                         setServerError(null);
-                        
-                        if (existingDoc) {
-                          setDocumentNumber(existingDoc.documentNumber);
-                        } else {
-                          setDocumentNumber('');
-                        }
                       }}
                       className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
                         isSelected
                           ? 'border-primary bg-primary/5'
+                          : isDisabled
+                          ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
                           : 'border-border bg-card hover:border-muted-foreground/30'
                       }`}
+                      disabled={isDisabled}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
@@ -389,8 +438,21 @@ const IDProof: React.FC = () => {
                           <p className="font-medium text-foreground">{doc.title}</p>
                           <p className="text-xs text-muted-foreground">{doc.description}</p>
                           {existingDoc && (
-                            <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                              <Check size={10} /> Already saved
+                            <p className={`text-xs mt-1 flex items-center gap-1 ${
+                              existingDoc.verificationStatus === 'verified' ? 'text-green-600' : 'text-yellow-600'
+                            }`}>
+                              <Check size={10} /> 
+                              {existingDoc.verificationStatus === 'verified' ? 'Already verified' : 'Pending verification'}
+                            </p>
+                          )}
+                          {doc.required && !existingDoc && (
+                            <p className="text-xs text-red-600 mt-1">
+                              Required
+                            </p>
+                          )}
+                          {isDisabled && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Already verified
                             </p>
                           )}
                         </div>
@@ -412,8 +474,14 @@ const IDProof: React.FC = () => {
                   {existingDocuments.map((doc) => (
                     <div key={doc.id} className="flex items-center justify-between text-sm p-2 hover:bg-secondary/50 rounded">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
-                          <Check size={12} className="text-green-600" />
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                          doc.verificationStatus === 'verified' ? 'bg-green-100' : 
+                          doc.verificationStatus === 'pending' ? 'bg-yellow-100' : 'bg-red-100'
+                        }`}>
+                          <Check size={12} className={
+                            doc.verificationStatus === 'verified' ? 'text-green-600' : 
+                            doc.verificationStatus === 'pending' ? 'text-yellow-600' : 'text-red-600'
+                          } />
                         </div>
                         <div>
                           <span className="text-muted-foreground text-xs">
@@ -448,7 +516,9 @@ const IDProof: React.FC = () => {
                   {selectedDocument === 'aadhaar' ? 'Aadhaar Details' : 'Driving License Details'}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Enter your document information below
+                  {selectedDocument === 'aadhaar' && hasVerifiedAadhaar 
+                    ? 'Your Aadhaar is already verified. Please select Driving License to continue.'
+                    : 'Enter your document information below'}
                 </p>
               </div>
 
@@ -456,15 +526,17 @@ const IDProof: React.FC = () => {
               <div className="space-y-3">
                 <label className="text-sm font-medium text-foreground">{getLabel()}</label>
                 <div className="relative">
-                  <Input
+                  <input
                     type="text"
                     placeholder={getPlaceholder()}
                     value={documentNumber}
                     onChange={handleDocumentNumberChange}
-                    className="h-12 text-base pr-12"
-                    disabled={isUploading}
-                    autoFocus
-                    maxLength={selectedDocument === 'aadhaar' ? 14 : 17} // Account for spaces
+                    className={`w-full h-12 px-4 bg-background border border-border rounded-lg text-base pr-12 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-50 ${
+                      selectedDocument === 'aadhaar' && hasVerifiedAadhaar ? 'cursor-not-allowed' : ''
+                    }`}
+                    disabled={isUploading || (selectedDocument === 'aadhaar' && hasVerifiedAadhaar)}
+                    autoFocus={!(selectedDocument === 'aadhaar' && hasVerifiedAadhaar)}
+                    maxLength={selectedDocument === 'aadhaar' ? 14 : 17}
                   />
                   {isInputValid() && !serverError && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -501,22 +573,22 @@ const IDProof: React.FC = () => {
               </div>
 
               {/* Save & Continue Button */}
-              <Button
+              <button
                 onClick={handleSaveAndContinue}
-                disabled={isUploading || !isInputValid()}
-                className="w-full h-12 text-base font-medium"
-                size="lg"
+                disabled={isUploading || !isInputValid() || (selectedDocument === 'aadhaar' && hasVerifiedAadhaar)}
+                className="w-full h-12 px-6 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-base"
               >
                 {isUploading ? (
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
                     <span>Saving Document...</span>
                   </div>
+                ) : selectedDocument === 'aadhaar' && hasVerifiedAadhaar ? (
+                  'Aadhaar Already Verified'
                 ) : (
                   'Save & Continue'
                 )}
-              </Button>
-            
+              </button>
             </div>
           </div>
         </div>

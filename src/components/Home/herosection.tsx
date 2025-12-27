@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation } from 'react-icons/fi';
+import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation, FiSun, FiMoon } from 'react-icons/fi';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { useNavigate } from 'react-router-dom';
 import { autocompletePlaces, getCurrentLocation, reverseGeocode, searchTextPlaces } from '../../services/placesApi';
-import { useAuth } from '../../contexts/AuthContext'; // Import useAuth
+import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import carImage from '../../assets/mainhome.svg';
 import { BASE_URL } from '@/config/api';
@@ -24,7 +24,7 @@ interface Place {
 
 export const HeroSection = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated } = useAuth(); // Get auth state
+  const { user, isAuthenticated } = useAuth();
   
   // State for form inputs
   const [fromLocation, setFromLocation] = useState('');
@@ -34,6 +34,7 @@ export const HeroSection = () => {
   const [travelDate, setTravelDate] = useState<Date | null>(new Date());
   const [seats, setSeats] = useState(1);
   const [preferences, setPreferences] = useState<string[]>([]);
+  const [timeOfDay, setTimeOfDay] = useState<'day' | 'night'>('day');
   
   // State for autocomplete suggestions
   const [fromSuggestions, setFromSuggestions] = useState<Place[]>([]);
@@ -105,7 +106,6 @@ export const HeroSection = () => {
         setShowFromSuggestions(true);
       } catch (err) {
         console.error('Error fetching from suggestions:', err);
-        // Fallback to searchText API if autocomplete fails
         try {
           const searchResults = await searchTextPlaces(value);
           setFromSuggestions(searchResults);
@@ -130,7 +130,6 @@ export const HeroSection = () => {
         setShowToSuggestions(true);
       } catch (err) {
         console.error('Error fetching to suggestions:', err);
-        // Fallback to searchText API if autocomplete fails
         try {
           const searchResults = await searchTextPlaces(value);
           setToSuggestions(searchResults);
@@ -193,6 +192,11 @@ export const HeroSection = () => {
     }
   };
   
+  // Handle time of day toggle
+  const handleTimeOfDayToggle = (type: 'day' | 'night') => {
+    setTimeOfDay(type);
+  };
+  
   // Handle preferences toggle
   const handlePreferenceToggle = (pref: string, label: string) => {
     setPreferences(prev => 
@@ -214,10 +218,9 @@ export const HeroSection = () => {
       return;
     }
     
-    // Check if user is authenticated
     if (!isAuthenticated) {
       setError('Please login to search for rides');
-      navigate('/login'); // Redirect to login page
+      navigate('/login');
       return;
     }
     
@@ -225,7 +228,6 @@ export const HeroSection = () => {
     setError('');
     
     try {
-      // Get token from user object (from AuthContext)
       const token = user?.token || localStorage.getItem('token') || '';
       
       if (!token) {
@@ -234,13 +236,13 @@ export const HeroSection = () => {
         return;
       }
       
-      // Prepare query parameters exactly as per API spec
       const params: Record<string, any> = {
         from_lat: fromPlace?.location?.latitude || 0,
         from_lng: fromPlace?.location?.longitude || 0,
         to_lat: toPlace?.location?.latitude || 0,
         to_lng: toPlace?.location?.longitude || 0,
-        date: travelDate ? travelDate.toISOString().split('T')[0] : '', // YYYY-MM-DD format
+        date: travelDate ? travelDate.toISOString().split('T')[0] : '',
+        time_of_day: timeOfDay,
         no_of_seat: seats,
         is_full_car: false,
         sort_by: 'time_asc',
@@ -248,21 +250,18 @@ export const HeroSection = () => {
         limit: 10
       };
       
-      // Add preferences only if selected
       if (preferences.length > 0) {
         params.preferences = preferences.join(',');
       }
       
-      // Add short location names if available
       if (fromLocation) {
-        params.from_short_location = fromLocation.split(',')[0]; // Take first part of address
+        params.from_short_location = fromLocation.split(',')[0];
       }
       if (toLocation) {
-        params.to_short_location = toLocation.split(',')[0]; // Take first part of address
+        params.to_short_location = toLocation.split(',')[0];
       }
       
       console.log('API Request params:', params);
-      console.log('Using token:', token.substring(0, 20) + '...'); // Log first 20 chars of token
       
       const response = await axios.get(`${BASE_URL}/api/rides/search`, {
         params,
@@ -276,17 +275,16 @@ export const HeroSection = () => {
       console.log('API Response:', response.data);
       
       if (response.data && response.data.rides) {
-        // Save search results to localStorage for persistence
         localStorage.setItem('searchResults', JSON.stringify(response.data));
         localStorage.setItem('searchParams', JSON.stringify({
           from: fromLocation,
           to: toLocation,
           date: travelDate,
+          timeOfDay,
           seats,
           preferences
         }));
         
-        // Navigate to find-ride page with search results
         navigate('/find-ride', { 
           state: { 
             searchResults: response.data,
@@ -299,17 +297,10 @@ export const HeroSection = () => {
     } catch (err: any) {
       console.error('Error searching rides:', err);
       
-      // Handle specific error cases
       if (err.response) {
-        // Server responded with error status
         if (err.response.status === 401) {
           setError('Your session has expired. Please login again.');
-          // Clear invalid token and redirect to login
           localStorage.removeItem('token');
-          if (user) {
-            // If using AuthContext, you might want to logout
-            // logout(); // Uncomment if you have logout function
-          }
           navigate('/login');
         } else if (err.response.status === 400) {
           setError('Invalid search parameters. Please check your inputs.');
@@ -319,10 +310,8 @@ export const HeroSection = () => {
           setError(err.response.data?.message || `Server error: ${err.response.status}`);
         }
       } else if (err.request) {
-        // Request made but no response
         setError('Network error. Please check your internet connection.');
       } else {
-        // Other errors
         setError('Failed to search rides. Please try again.');
       }
     } finally {
@@ -331,14 +320,6 @@ export const HeroSection = () => {
   };
   
   const handleFindRideClick = () => {
-    if (!isAuthenticated) {
-      navigate('/login');
-      return;
-    }
-    navigate('/offer-ride1');
-  };
-
-  const handleOfferRideClick = () => {
     if (!isAuthenticated) {
       navigate('/login');
       return;
@@ -385,13 +366,6 @@ export const HeroSection = () => {
               >
                 Offer ride <FiArrowRight />
               </button>
-
-              {/* <button
-                onClick={handleOfferRideClick}
-                className="border border-gray-300 text-gray-700 px-5 py-2.5 rounded-full text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
-              >
-                Offer ride
-              </button> */}
             </div>
           </div>
 
@@ -405,16 +379,17 @@ export const HeroSection = () => {
           </div>
         </div>
 
-        {/* SEARCH FORM - Fixed positioning and spacing */}
-        <div className="relative mt-6 lg:mt-8 px-0 sm:px-0">
-          <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-4 md:p-5 max-w-7xl mx-auto relative z-20">
+        {/* SEARCH FORM - Perfect 6 Columns Layout */}
+        <div className="relative mt-6 lg:mt-8">
+          <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-3 sm:p-4 max-w-7xl mx-auto relative z-20">
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 items-center">
+            {/* MAIN FORM ROW - 6 EQUAL COLUMNS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-3 items-center">
               
-              {/* From Location with Autocomplete */}
+              {/* 1. FROM */}
               <div className="relative" ref={fromRef}>
-                <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2.5 sm:py-3 hover:border-[#21409A] transition-colors">
-                  <FiMapPin className="text-gray-400 text-base sm:text-lg flex-shrink-0" />
+                <div className="flex items-center gap-1 sm:gap-2 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+                  <FiMapPin className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <input
                       type="text"
@@ -428,38 +403,38 @@ export const HeroSection = () => {
                           setShowFromSuggestions(true);
                         }
                       }}
-                      placeholder="Pickup location..."
+                      placeholder="Pickup"
                       className="w-full text-xs sm:text-sm outline-none bg-transparent placeholder-gray-400"
                     />
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
                     {isLocationLoading ? (
-                      <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-[#21409A]"></div>
+                      <div className="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-[#21409A]"></div>
                     ) : (
                       <button
                         onClick={handleUseCurrentLocation}
-                        className="text-xs text-[#21409A] hover:text-[#1a347d] p-0.5 sm:p-1 rounded hover:bg-gray-100 transition-colors"
+                        className="text-[9px] sm:text-[10px] text-[#21409A] hover:text-[#1a347d] p-0.5 rounded hover:bg-gray-100"
                         type="button"
-                        title="Use current location"
+                        title="Current"
                       >
-                        <FiNavigation size={12} className="sm:size-[14px]" />
+                        <FiNavigation size={9} className="sm:size-[10px]" />
                       </button>
                     )}
                     {fromLocation && (
                       <button
                         onClick={handleClearFrom}
-                        className="text-gray-400 hover:text-gray-600 p-0.5 sm:p-1 rounded hover:bg-gray-100 transition-colors"
+                        className="text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100"
                         type="button"
                       >
-                        <FiX size={12} className="sm:size-[14px]" />
+                        <FiX size={9} className="sm:size-[10px]" />
                       </button>
                     )}
                   </div>
                 </div>
                 
-                {/* From Suggestions Dropdown */}
+                {/* From Suggestions */}
                 {showFromSuggestions && fromSuggestions.length > 0 && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 sm:max-h-60 overflow-y-auto">
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                     {fromSuggestions.map((place) => 
                       renderSuggestionItem(place, () => handleSelectFromPlace(place))
                     )}
@@ -467,10 +442,10 @@ export const HeroSection = () => {
                 )}
               </div>
 
-              {/* To Location with Autocomplete */}
+              {/* 2. TO */}
               <div className="relative" ref={toRef}>
-                <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2.5 sm:py-3 hover:border-[#21409A] transition-colors">
-                  <FiMapPin className="text-gray-400 text-base sm:text-lg flex-shrink-0" />
+                <div className="flex items-center gap-1 sm:gap-2 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+                  <FiMapPin className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <input
                       type="text"
@@ -484,24 +459,24 @@ export const HeroSection = () => {
                           setShowToSuggestions(true);
                         }
                       }}
-                      placeholder="Dropoff location..."
+                      placeholder="Dropoff"
                       className="w-full text-xs sm:text-sm outline-none bg-transparent placeholder-gray-400"
                     />
                   </div>
                   {toLocation && (
                     <button
                       onClick={handleClearTo}
-                      className="text-gray-400 hover:text-gray-600 p-0.5 sm:p-1 rounded hover:bg-gray-100 transition-colors flex-shrink-0"
+                      className="text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100 flex-shrink-0"
                       type="button"
                     >
-                      <FiX size={12} className="sm:size-[14px]" />
+                      <FiX size={9} className="sm:size-[10px]" />
                     </button>
                   )}
                 </div>
                 
-                {/* To Suggestions Dropdown */}
+                {/* To Suggestions */}
                 {showToSuggestions && toSuggestions.length > 0 && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 sm:max-h-60 overflow-y-auto">
+                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                     {toSuggestions.map((place) => 
                       renderSuggestionItem(place, () => handleSelectToPlace(place))
                     )}
@@ -509,120 +484,163 @@ export const HeroSection = () => {
                 )}
               </div>
 
-              {/* Date Picker */}
-              <div className="flex items-center gap-2 sm:gap-3 border border-gray-200 rounded-lg px-3 py-2.5 sm:py-3 hover:border-[#21409A] transition-colors">
-                <FiCalendar className="text-gray-400 text-base sm:text-lg flex-shrink-0" />
+              {/* 3. DATE */}
+              <div className="flex items-center gap-1 sm:gap-2 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+                <FiCalendar className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
                 <DatePicker
                   selected={travelDate}
                   onChange={(date) => setTravelDate(date)}
                   minDate={new Date()}
-                  dateFormat="EEE, MMM d"
+                  dateFormat="MMM d"
                   className="w-full text-xs sm:text-sm outline-none bg-transparent cursor-pointer placeholder-gray-400"
-                  placeholderText="Select date"
+                  placeholderText="Date"
                   wrapperClassName="w-full"
                 />
               </div>
 
-              {/* Seats with Increment/Decrement */}
-              <div className="flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5 sm:py-3 hover:border-[#21409A] transition-colors">
-                <FiUser className="text-gray-400 text-base sm:text-lg flex-shrink-0" />
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <button
-                    type="button"
-                    onClick={handleDecrementSeats}
-                    disabled={seats <= 1}
-                    className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <span className="text-gray-600 text-xs sm:text-sm">-</span>
-                  </button>
-                  <div className="text-center min-w-[32px] sm:min-w-[40px]">
-                    <span className="text-xs sm:text-sm font-medium text-gray-800">{seats}</span>
+              {/* 4. DAY/NIGHT - Now as separate column */}
+              <div className="flex items-center justify-center gap-1 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+                <div className="flex items-center gap-1.5 w-full">
+                  <div className="flex border border-gray-300 rounded-md overflow-hidden w-full">
+                    <button
+                      onClick={() => handleTimeOfDayToggle('day')}
+                      className={`flex-1 px-2 py-1.5 text-[10px] sm:text-xs transition-colors flex items-center justify-center gap-1 ${
+                        timeOfDay === 'day' 
+                          ? 'bg-yellow-500 text-white' 
+                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      <FiSun size={10} className="sm:size-[12px]" />
+                      <span>Day</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => handleTimeOfDayToggle('night')}
+                      className={`flex-1 px-2 py-1.5 text-[10px] sm:text-xs transition-colors flex items-center justify-center gap-1 ${
+                        timeOfDay === 'night' 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      <FiMoon size={10} className="sm:size-[12px]" />
+                      <span>Night</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleIncrementSeats}
-                    className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-100 transition-colors"
-                  >
-                    <span className="text-gray-600 text-xs sm:text-sm">+</span>
-                  </button>
-                  <span className="text-xs sm:text-sm text-gray-600 hidden sm:inline">seat{seats !== 1 ? 's' : ''}</span>
                 </div>
               </div>
 
-              {/* Search Button */}
-              <button 
-                onClick={searchRides}
-                disabled={!isSearchEnabled() || isLoading}
-                className={`
-                  px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition w-full cursor-pointer flex items-center justify-center gap-1 sm:gap-2
-                  ${isSearchEnabled() 
-                    ? 'bg-[#21409A] text-white hover:bg-[#1a347d]' 
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                  }
-                `}
-              >
-                {isLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-white"></div>
-                    <span className="ml-1 sm:ml-2">Searching...</span>
-                  </>
-                ) : (
-                  <>
-                    <FiSearch size={14} className="sm:size-[16px]" />
-                    <span className="ml-1 sm:ml-2">Search Ride</span>
-                  </>
-                )}
-              </button>
+              {/* 5. SEAT */}
+              <div className="flex items-center justify-between border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-1">
+                    <FiUser className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
+                    <span className="text-xs sm:text-sm text-gray-600 hidden sm:inline">Seats</span>
+                  </div>
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDecrementSeats}
+                      disabled={seats <= 1}
+                      className="w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-100 disabled:opacity-50"
+                    >
+                      <span className="text-gray-600 text-xs">-</span>
+                    </button>
+                    <div className="text-center min-w-[24px] sm:min-w-[30px]">
+                      <span className="text-xs sm:text-sm font-medium text-gray-800">{seats}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleIncrementSeats}
+                      className="w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-100"
+                    >
+                      <span className="text-gray-600 text-xs">+</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 6. SEARCH BUTTON */}
+             <button
+  onClick={searchRides}
+  disabled={!isSearchEnabled() || isLoading}
+  className={`
+    px-2 sm:px-3 py-2.5 rounded-lg text-xs sm:text-sm font-medium
+    transition w-full flex items-center justify-center gap-1
+
+    bg-[#21409A] text-white
+    shadow-sm
+
+    ${(!isSearchEnabled() || isLoading)
+      ? 'cursor-not-allowed'
+      : 'hover:bg-[#1a347d] active:bg-[#152a6a] cursor-pointer'
+    }
+
+    disabled:opacity-100
+  `}
+>
+  {isLoading ? (
+    <>
+      <div className="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-white"></div>
+      <span className="ml-1">Searching...</span>
+    </>
+  ) : (
+    <>
+      <FiSearch size={11} className="sm:size-[13px]" />
+      <span className="ml-1">Search Ride</span>
+    </>
+  )}
+</button>
+
             </div>
 
             {/* Error Message */}
             {error && (
-              <div className="mt-3 sm:mt-4 text-xs sm:text-sm text-red-600 bg-red-50 p-2 sm:p-3 rounded border border-red-200">
+              <div className="mt-2 sm:mt-3 text-xs sm:text-sm text-red-600 bg-red-50 p-2 rounded border border-red-200">
                 {error}
               </div>
             )}
 
             {/* Filters - Preferences */}
-            <div className="flex flex-wrap gap-2 sm:gap-3 mt-4 sm:mt-6">
+            <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-3 sm:mt-4">
               <button 
                 onClick={() => handlePreferenceToggle('ladies_only', 'Ladies only')}
-                className={`rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm flex items-center gap-1 sm:gap-2 transition-all border ${
+                className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
                   preferences.includes('ladies_only') 
-                    ? 'bg-pink-50 border-pink-300 text-pink-700 shadow-sm'
+                    ? 'bg-pink-50 border-pink-300 text-pink-700'
                     : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
                 }`}
               >
                 👩 Ladies only
-                {preferences.includes('ladies_only') && <FiX size={10} className="sm:size-[12px]" />}
+                {preferences.includes('ladies_only') && <FiX size={8} className="sm:size-[10px]" />}
               </button>
               <button 
                 onClick={() => handlePreferenceToggle('senior_citizen', 'Senior Citizen')}
-                className={`rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm flex items-center gap-1 sm:gap-2 transition-all border ${
+                className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
                   preferences.includes('senior_citizen') 
-                    ? 'bg-orange-50 border-orange-300 text-orange-700 shadow-sm'
+                    ? 'bg-orange-50 border-orange-300 text-orange-700'
                     : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
                 }`}
               >
                 🧓 Senior Citizen
-                {preferences.includes('senior_citizen') && <FiX size={10} className="sm:size-[12px]" />}
+                {preferences.includes('senior_citizen') && <FiX size={8} className="sm:size-[10px]" />}
               </button>
               <button 
                 onClick={() => handlePreferenceToggle('kids_friendly', 'Kids friendly')}
-                className={`rounded-full px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm flex items-center gap-1 sm:gap-2 transition-all border ${
+                className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
                   preferences.includes('kids_friendly') 
-                    ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-sm'
+                    ? 'bg-blue-50 border-blue-300 text-blue-700'
                     : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
                 }`}
               >
                 👶 Kids friendly
-                {preferences.includes('kids_friendly') && <FiX size={10} className="sm:size-[12px]" />}
+                {preferences.includes('kids_friendly') && <FiX size={8} className="sm:size-[10px]" />}
               </button>
             </div>
             
             {/* Selected Preferences */}
             {preferences.length > 0 && (
-              <div className="mt-3 sm:mt-4 text-xs text-gray-500 flex items-center gap-1 sm:gap-2 flex-wrap">
-                <span className="font-medium">Selected preferences:</span>
+              <div className="mt-2 sm:mt-3 text-xs text-gray-500 flex items-center gap-1 flex-wrap">
+                <span className="font-medium">Selected:</span>
                 {preferences.map(pref => {
                   const labels: Record<string, string> = {
                     'ladies_only': 'Ladies only',
@@ -630,7 +648,7 @@ export const HeroSection = () => {
                     'kids_friendly': 'Kids friendly'
                   };
                   return (
-                    <span key={pref} className="bg-gray-100 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-xs">
+                    <span key={pref} className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">
                       {labels[pref] || pref}
                     </span>
                   );
@@ -640,12 +658,12 @@ export const HeroSection = () => {
             
             {/* Selected Locations Info */}
             {(fromPlace || toPlace) && (
-              <div className="mt-3 sm:mt-4 text-xs text-gray-500 space-y-0.5 sm:space-y-1">
+              <div className="mt-2 text-xs text-gray-500 space-y-0.5">
                 {fromPlace?.location && (
-                  <div className="break-words">Pickup: {fromLocation} (Lat: {fromPlace.location.latitude.toFixed(6)}, Lng: {fromPlace.location.longitude.toFixed(6)})</div>
+                  <div className="break-words truncate">From: {fromLocation.split(',')[0]}</div>
                 )}
                 {toPlace?.location && (
-                  <div className="break-words">Dropoff: {toLocation} (Lat: {toPlace.location.latitude.toFixed(6)}, Lng: {toPlace.location.longitude.toFixed(6)})</div>
+                  <div className="break-words truncate">To: {toLocation.split(',')[0]}</div>
                 )}
               </div>
             )}

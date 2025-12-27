@@ -8,6 +8,8 @@ import { FiChevronLeft, FiCamera } from "react-icons/fi";
 import { Button } from "../common/Button";
 import ProfileApiService, { BasicProfileData } from "../../services/profileApi";
 import { useAuth } from "../../contexts/AuthContext";
+// Import the useProfile hook
+import { useProfile } from "../../pages/Profile";
 
 // Your custom Label component
 const Label = ({ 
@@ -102,6 +104,8 @@ const Input = ({
 const BasicDetails = () => {
   const navigate = useNavigate();
   const { user, updateUser } = useAuth();
+  // Use the central profile data
+  const { profileData: centralProfileData, refreshProfile } = useProfile();
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
@@ -209,7 +213,7 @@ const BasicDetails = () => {
     setShowDatePickerModal(false);
   };
 
-  // Fetch profile data on component mount
+  // Fetch profile data on component mount - Use central data first
   useEffect(() => {
     fetchProfileData();
   }, []);
@@ -228,41 +232,52 @@ const BasicDetails = () => {
       setFetching(true);
       console.log("Fetching profile data...");
       
-      const result = await ProfileApiService.getBasicProfile();
+      let profileData: BasicProfileData | null = null;
       
-      if (result.success && result.data) {
-        console.log("Profile data loaded:", result.data);
-        
-        // Set form data from API response
+      // First try to use central profile data
+      if (centralProfileData) {
+        console.log("Using central profile data:", centralProfileData);
+        profileData = centralProfileData;
+      } else {
+        // Fallback to API call
+        const result = await ProfileApiService.getBasicProfile();
+        if (result.success && result.data) {
+          profileData = result.data;
+          console.log("Profile data loaded from API:", result.data);
+        }
+      }
+      
+      if (profileData) {
+        // Set form data from profile data
         setFormData({
-          firstName: result.data.firstName || "",
-          lastName: result.data.lastName || "",
-          gender: result.data.gender || "male",
-          dateOfBirth: result.data.dateOfBirth || "",
-          location: result.data.location || "",
-          publishRide: result.data.publishRide || false,
-          partnerType: result.data.partnerType || "",
-          businessName: result.data.businessName || "",
-          professionalType: result.data.professionalType || "",
-          multiVehicle: result.data.multiVehicle || false,
+          firstName: profileData.firstName || "",
+          lastName: profileData.lastName || "",
+          gender: profileData.gender || "male",
+          dateOfBirth: profileData.dateOfBirth || "",
+          location: profileData.location || "",
+          publishRide: profileData.publishRide || false,
+          partnerType: profileData.partnerType || "",
+          businessName: profileData.businessName || "",
+          professionalType: profileData.professionalType || "",
+          multiVehicle: profileData.multiVehicle || false,
         });
         
         // Load profile image if exists
-        if (result.data.profileImage) {
-          let imageUrl = result.data.profileImage;
+        if (profileData.profileImage) {
+          let imageUrl = profileData.profileImage;
           if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('data:')) {
             imageUrl = `https://api-dev.oolalala.com${imageUrl}`;
           }
           setProfileImage(imageUrl);
-          setIsProfileImageUploaded(true); // User already has a profile image
+          setIsProfileImageUploaded(true);
         } else {
-          setIsProfileImageUploaded(false); // No profile image
+          setIsProfileImageUploaded(false);
         }
         
         toast.success("Profile loaded successfully");
       } else {
-        console.error("Failed to load profile:", result.error);
-        toast.error(result.error || "Failed to load profile data");
+        console.error("Failed to load profile");
+        toast.error("Failed to load profile data");
         
         // If user data exists in auth context, use it as fallback
         if (user) {
@@ -279,7 +294,6 @@ const BasicDetails = () => {
             multiVehicle: false,
           });
           
-          // Check if user already has profile image
           if (user.profile_image) {
             setProfileImage(user.profile_image);
             setIsProfileImageUploaded(true);
@@ -316,11 +330,9 @@ const BasicDetails = () => {
         let width = img.width;
         let height = img.height;
         
-        // Set max dimensions to reduce size
         const MAX_WIDTH = 800;
         const MAX_HEIGHT = 800;
         
-        // Calculate new dimensions while maintaining aspect ratio
         if (width > height) {
           if (width > MAX_WIDTH) {
             height = Math.round(height * MAX_WIDTH / width);
@@ -340,24 +352,21 @@ const BasicDetails = () => {
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
           
-          // Reduce quality based on attempt number
-          let quality = 0.8 - (attempt * 0.2); // Start with 0.8, then 0.6, then 0.4
-          if (quality < 0.4) quality = 0.4; // Minimum quality 0.4
+          let quality = 0.8 - (attempt * 0.2);
+          if (quality < 0.4) quality = 0.4;
           
-          // Convert to Blob with compression
           canvas.toBlob(
             (compressedBlob) => {
               if (compressedBlob) {
                 console.log(`Compression attempt ${attempt}:`, (compressedBlob.size / 1024 / 1024).toFixed(2), 'MB');
                 
-                // If still too large and more attempts left, try again with lower quality
                 if (compressedBlob.size > 2 * 1024 * 1024 && attempt < maxAttempts) {
                   resolve(compressImageToUnder2MB(compressedBlob, maxAttempts, attempt + 1));
                 } else {
                   resolve(compressedBlob);
                 }
               } else {
-                resolve(blob); // Fallback to original
+                resolve(blob);
               }
             },
             'image/jpeg',
@@ -370,7 +379,7 @@ const BasicDetails = () => {
       
       img.onerror = () => {
         console.error('Error loading image for compression');
-        resolve(blob); // Fallback to original
+        resolve(blob);
       };
       
       img.src = URL.createObjectURL(blob);
@@ -393,15 +402,12 @@ const BasicDetails = () => {
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        // Draw video to canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Convert canvas to Blob with compression
         canvas.toBlob(async (blob) => {
           if (blob) {
             try {
               setImageUploading(true);
-              // Compress the image
               const compressedBlob = await compressImageToUnder2MB(blob);
               
               const file = new File([compressedBlob], `profile-photo-${Date.now()}.jpg`, { 
@@ -411,7 +417,6 @@ const BasicDetails = () => {
               
               console.log('Captured image size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
               
-              // Check if image is under 2MB
               if (file.size > 2 * 1024 * 1024) {
                 toast.error('Image is still too large. Please try again with better lighting.');
                 stopCameraStream();
@@ -432,7 +437,7 @@ const BasicDetails = () => {
             stopCameraStream();
             setImageUploading(false);
           }
-        }, 'image/jpeg', 0.7); // Start with 0.7 quality
+        }, 'image/jpeg', 0.7);
       }
     } catch (error) {
       console.error('Error capturing photo:', error);
@@ -448,7 +453,6 @@ const BasicDetails = () => {
       setLoading(true);
       setImageUploading(true);
       
-      // Validate image
       const validImageTypes = ['image/jpeg', 'image/jpg'];
       if (!validImageTypes.includes(file.type)) {
         toast.error('Only JPEG images are allowed');
@@ -456,7 +460,7 @@ const BasicDetails = () => {
         return;
       }
       
-      if (file.size > 2 * 1024 * 1024) { // 2MB
+      if (file.size > 2 * 1024 * 1024) {
         toast.error('Image size should be less than 2MB');
         setImageUploading(false);
         return;
@@ -464,25 +468,20 @@ const BasicDetails = () => {
       
       toast.info('Uploading profile picture...');
       
-      // Preview the image
       const reader = new FileReader();
       reader.onloadend = () => {
         setProfileImage(reader.result as string);
       };
       reader.readAsDataURL(file);
       
-      // Create FormData with all required fields
       const uploadFormData = new FormData();
       uploadFormData.append('profile_image', file);
-      
-      // Always append basic required fields from current formData state
       uploadFormData.append('firstName', formData.firstName || '');
       uploadFormData.append('lastName', formData.lastName || '');
       uploadFormData.append('dateOfBirth', formData.dateOfBirth || '');
       uploadFormData.append('gender', formData.gender);
       uploadFormData.append('multiVehicle', formData.multiVehicle.toString());
       
-      // Append optional fields if they exist
       if (formData.location) {
         uploadFormData.append('location', formData.location);
       }
@@ -503,20 +502,12 @@ const BasicDetails = () => {
         uploadFormData.append('professionalType', formData.professionalType);
       }
       
-      // Log FormData for debugging
-      console.log('Sending FormData with keys:');
-      for (let [key, value] of uploadFormData.entries()) {
-        console.log(`${key}:`, value);
-      }
-      
-      // Call API
       const result = await ProfileApiService.updateBasicProfile(uploadFormData);
       
       if (result.success) {
-        setIsProfileImageUploaded(true); // Mark as uploaded
+        setIsProfileImageUploaded(true);
         toast.success('Profile picture updated successfully!');
         
-        // Update user in auth context if needed
         const userUpdateData: any = {
           first_name: formData.firstName,
           last_name: formData.lastName,
@@ -526,6 +517,10 @@ const BasicDetails = () => {
         };
         
         updateUser(userUpdateData);
+        // Refresh central profile data if available
+        if (refreshProfile) {
+          await refreshProfile();
+        }
       } else {
         toast.error(result.error || 'Failed to update profile picture');
       }
@@ -635,7 +630,6 @@ const BasicDetails = () => {
   };
 
   const handleSave = async () => {
-    // NEW: Check if profile image is uploaded
     if (!isProfileImageUploaded) {
       toast.error('Please upload your profile image before saving');
       toast.info('Click the camera icon to take a profile photo');
@@ -647,7 +641,6 @@ const BasicDetails = () => {
       return;
     }
 
-    // Check age requirement for date of birth
     if (formData.dateOfBirth) {
       const age = calculateAge(formData.dateOfBirth);
       if (age < 18) {
@@ -656,13 +649,17 @@ const BasicDetails = () => {
       }
     }
 
-    // Validation for commercial partner type
-    if (formData.publishRide && formData.partnerType === "commercial" && !formData.businessName) {
-      toast.error("Business name is required for commercial partner");
-      return;
+    if (formData.publishRide && formData.partnerType === "commercial") {
+      if (!formData.businessName) {
+        toast.error("Business name is required for commercial partner");
+        return;
+      }
+      if (!formData.location) {
+        toast.error("Location is required for commercial partner");
+        return;
+      }
     }
 
-    // Validation for partner type when publishRide is true
     if (formData.publishRide && !formData.partnerType) {
       toast.error("Please select a partner type when publishing rides");
       return;
@@ -672,7 +669,6 @@ const BasicDetails = () => {
       setLoading(true);
       console.log("Saving profile data:", formData);
       
-      // Create FormData object for the update using the service method
       const formDataObj = ProfileApiService.createProfileFormData({
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -686,15 +682,11 @@ const BasicDetails = () => {
         professionalType: formData.professionalType,
       });
       
-      console.log("FormData keys:", Array.from(formDataObj.keys()));
-      
-      // Update profile
       const result = await ProfileApiService.updateBasicProfile(formDataObj);
       
       if (result.success) {
         toast.success(result.message || "Your details have been saved successfully!");
         
-        // Update user in auth context
         const userUpdateData: any = {
           first_name: formData.firstName,
           last_name: formData.lastName,
@@ -703,9 +695,15 @@ const BasicDetails = () => {
         };
         
         updateUser(userUpdateData);
+        // Refresh central profile data if available
+        if (refreshProfile) {
+          await refreshProfile();
+        }
         
-        // Navigate back after successful save
-        setTimeout(() => navigate(-1), 1000);
+        // AUTO-NAVIGATE TO ID PROOF AFTER SUCCESSFUL SAVE
+        setTimeout(() => {
+          navigate('/id-proof');
+        }, 1000);
       } else {
         toast.error(result.error || "Failed to save profile");
       }
@@ -724,7 +722,7 @@ const BasicDetails = () => {
       publishRide: checked,
       partnerType: checked ? formData.partnerType : "",
       businessName: checked ? formData.businessName : "",
-      professionalType: "", // Clear professional type when toggle
+      professionalType: "",
       multiVehicle: checked ? formData.multiVehicle : false,
     };
     
@@ -737,7 +735,7 @@ const BasicDetails = () => {
       ...formData,
       partnerType: type,
       businessName: type === "commercial" ? formData.businessName : "",
-      professionalType: "", // Clear professional type
+      professionalType: "",
     });
   };
 
@@ -763,24 +761,10 @@ const BasicDetails = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="flex items-center justify-center bg-white px-4 py-4 relative shadow-sm">
-        <button 
-          onClick={() => navigate(-1)} 
-          className="absolute left-4 p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={loading || imageUploading || cameraAccessing}
-        >
-          <FiChevronLeft size={24} className="text-foreground" />
-        </button>
-        <h1 className="text-lg font-semibold text-gray-800">Basic details</h1>
-      </div>
+    <div className="min-h-screen bg-gray- 50 px-4 py-4">
+    
 
-      {/* Subtitle */}
-      <p className="text-center text-sm text-gray-600 mt-2 mb-6">
-        Make sure your personal information is accurate.
-      </p>
-
+     
       {/* Form Card */}
       <div className="px-4 md:px-8 lg:px-16">
         <div className="bg-white rounded-xl shadow-sm p-6 md:p-8 max-w-3xl mx-auto">
@@ -829,7 +813,7 @@ const BasicDetails = () => {
                 )}
               </button>
               
-              {/* NEW: Profile Image Required Indicator */}
+              {/* Profile Image Required Indicator */}
               {!isProfileImageUploaded && (
                 <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
                   Required
@@ -838,7 +822,7 @@ const BasicDetails = () => {
             </div>
           </div>
 
-          {/* NEW: Profile Image Upload Warning */}
+          {/* Profile Image Upload Warning */}
           {!isProfileImageUploaded && (
             <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-center">
               <p className="text-yellow-700 font-medium">
@@ -883,50 +867,30 @@ const BasicDetails = () => {
                 />
               </div>
 
-              {/* Date of Birth and Location in same row */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Date of Birth */}
-                <div className="space-y-2">
-                  <Label htmlFor="dob">
-                    Date of birth <span className="text-red-500">*</span>
-                  </Label>
-                  <div className="relative">
-                    <div
-                      onClick={() => !loading && !imageUploading && handleDatePicker()}
-                      className={`w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 flex items-center justify-between h-12 ${loading || imageUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                    >
-                      <span className={formData.dateOfBirth ? 'text-gray-800' : 'text-gray-400'}>
-                        {formData.dateOfBirth ? formatDateForDisplay(formData.dateOfBirth) : "Select date"}
-                      </span>
-                      <Calendar className="h-5 w-5 text-gray-400" />
+              {/* Date of Birth */}
+              <div className="space-y-2">
+                <Label htmlFor="dob">
+                  Date of birth <span className="text-red-500">*</span>
+                </Label>
+                <div className="relative">
+                  <div
+                    onClick={() => !loading && !imageUploading && handleDatePicker()}
+                    className={`w-full px-4 py-3 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 flex items-center justify-between h-12 ${loading || imageUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <span className={formData.dateOfBirth ? 'text-gray-800' : 'text-gray-400'}>
+                      {formData.dateOfBirth ? formatDateForDisplay(formData.dateOfBirth) : "Select date"}
+                    </span>
+                    <Calendar className="h-5 w-5 text-gray-400" />
+                  </div>
+                  {formData.dateOfBirth && (
+                    <div className="mt-1 text-xs text-gray-500">
+                      Age: {calculateAge(formData.dateOfBirth)} years
+                      {calculateAge(formData.dateOfBirth) < 18 && (
+                        <span className="text-red-500 ml-1">(Must be 18+)</span>
+                      )}
                     </div>
-                    {formData.dateOfBirth && (
-                      <div className="mt-1 text-xs text-gray-500">
-                        Age: {calculateAge(formData.dateOfBirth)} years
-                        {calculateAge(formData.dateOfBirth) < 18 && (
-                          <span className="text-red-500 ml-1">(Must be 18+)</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
-
-                {/* Location (Optional) - ONLY FOR COMMERCIAL PARTNERS */}
-                {formData.publishRide && formData.partnerType === "commercial" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="location">
-                      Location (Optional)
-                    </Label>
-                    <Input
-                      id="location"
-                      placeholder="Enter your location"
-                      value={formData.location}
-                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                      className="h-12"
-                      disabled={loading || imageUploading}
-                    />
-                  </div>
-                )}
               </div>
             </div>
 
@@ -1032,22 +996,42 @@ const BasicDetails = () => {
 
                   {/* Business Name Field (Only for Commercial partners) */}
                   {formData.partnerType === "commercial" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="businessName">
-                        Business Name <span className="text-red-500">*</span>
-                      </Label>
-                      <Input
-                        id="businessName"
-                        placeholder="Enter your business name"
-                        value={formData.businessName}
-                        onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
-                        className="h-12"
-                        disabled={loading || imageUploading}
-                      />
-                      <p className="text-xs text-gray-500">
-                        Required for commercial partners
-                      </p>
-                    </div>
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="businessName">
+                          Business Name <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="businessName"
+                          placeholder="Enter your business name"
+                          value={formData.businessName}
+                          onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                          className="h-12"
+                          disabled={loading || imageUploading}
+                        />
+                        <p className="text-xs text-gray-500">
+                          Required for commercial partners
+                        </p>
+                      </div>
+
+                      {/* Location Field (Only for Commercial partners) */}
+                      <div className="space-y-2">
+                        <Label htmlFor="location">
+                          Location <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="location"
+                          placeholder="Enter your location"
+                          value={formData.location}
+                          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                          className="h-12"
+                          disabled={loading || imageUploading}
+                        />
+                        <p className="text-xs text-gray-500">
+                          Required for commercial partners
+                        </p>
+                      </div>
+                    </>
                   )}
                 </>
               )}
@@ -1074,7 +1058,7 @@ const BasicDetails = () => {
             </Button>
           </div>
           
-          {/* NEW: Save Button Warning */}
+          {/* Save Button Warning */}
           {!isProfileImageUploaded && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
               <p className="text-red-600 text-sm text-center">

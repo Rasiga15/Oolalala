@@ -1,4 +1,4 @@
-// src/services/rideApi.ts - FIXED VERSION
+
 const BASE_URL = 'https://api-dev.oolalala.com/api';
 
 export interface Stop {
@@ -27,6 +27,7 @@ export interface OfferRidePayload {
     coordinates: [number, number];
   };
   vehicle_id: number;
+  driver_id: number; // IMPORTANT: This must be included
   seat_quantity: number;
   departureTime: string; // ISO string
   fare_details: {
@@ -35,9 +36,9 @@ export interface OfferRidePayload {
   isNegotiable: boolean;
   is_full_car: boolean;
   status: 'published' | 'draft';
-  stops?: Stop[]; // Only for shared rides (is_full_car: false)
-  fares?: FareSegment[]; // Only for shared rides (is_full_car: false)
-  total_distance?: number; // Distance field for full car rides
+  stops?: Stop[]; // For shared rides: should include ALL stops in order
+  fares?: FareSegment[]; // For shared rides: sequential segments only (1→2, 2→3, etc.)
+  total_distance?: number;
 }
 
 export interface OfferRideResponse {
@@ -67,7 +68,6 @@ export interface OfferRideResponse {
   created_at: string;
 }
 
-// Get auth token from localStorage or context
 const getAuthToken = (): string | null => {
   const tokenSources = [
     localStorage.getItem('authToken'),
@@ -83,16 +83,13 @@ const getAuthToken = (): string | null => {
         localStorage.removeItem('token');
         sessionStorage.removeItem('token');
       }
-      console.log('Token found:', token.substring(0, 20) + '...');
       return token;
     }
   }
   
-  console.log('No auth token found in any storage location');
   return null;
 };
 
-// Clear auth tokens (for logout)
 export const clearAuthTokens = (): void => {
   localStorage.removeItem('authToken');
   localStorage.removeItem('token');
@@ -102,7 +99,6 @@ export const clearAuthTokens = (): void => {
   sessionStorage.removeItem('userData');
 };
 
-// Check if token is expired
 const isTokenExpired = (token: string): boolean => {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
@@ -112,7 +108,6 @@ const isTokenExpired = (token: string): boolean => {
   }
 };
 
-// API request helper
 const apiRequest = async (endpoint: string, method: string, body?: any, requiresAuth = true) => {
   const url = `${BASE_URL}${endpoint}`;
   const headers: HeadersInit = {
@@ -127,7 +122,6 @@ const apiRequest = async (endpoint: string, method: string, body?: any, requires
       throw new Error('Authentication required. Please login again.');
     }
     
-    // Check if token is expired
     if (isTokenExpired(token)) {
       clearAuthTokens();
       throw new Error('Your session has expired. Please login again.');
@@ -150,7 +144,6 @@ const apiRequest = async (endpoint: string, method: string, body?: any, requires
     const errorText = await response.text();
     console.error('API Error Details:', errorText);
     
-    // Handle specific error codes
     if (response.status === 401) {
       clearAuthTokens();
       throw new Error('Your session has expired. Please login again.');
@@ -164,13 +157,11 @@ const apiRequest = async (endpoint: string, method: string, body?: any, requires
       throw new Error('Resource not found.');
     }
     
-    // Try to parse error message
     let errorMessage = `API Error (${response.status}): ${response.statusText}`;
     try {
       const errorData = JSON.parse(errorText);
       errorMessage = errorData.message || errorData.error || errorMessage;
       
-      // Handle backend-specific error messages
       if (errorMessage.includes('Token is invalid') || errorMessage.includes('token has expired')) {
         clearAuthTokens();
         throw new Error('Your session has expired. Please login again.');
@@ -189,15 +180,23 @@ const apiRequest = async (endpoint: string, method: string, body?: any, requires
   return data;
 };
 
+// CORRECTED: Updated to handle proper stop order
 export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideResponse> => {
   try {
     console.log('Offering ride with payload:', payload);
     
     // Clean payload to match expected structure
     const processedPayload: any = {
-      origin: payload.origin,
-      destination: payload.destination,
+      origin: {
+        address: payload.origin.address,
+        coordinates: payload.origin.coordinates // Should be [longitude, latitude]
+      },
+      destination: {
+        address: payload.destination.address,
+        coordinates: payload.destination.coordinates
+      },
       vehicle_id: payload.vehicle_id,
+      driver_id: payload.driver_id, // CRITICAL: Must be included
       seat_quantity: payload.seat_quantity,
       departureTime: payload.departureTime,
       fare_details: payload.fare_details,
@@ -206,18 +205,18 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
       status: payload.status
     };
     
-    // Add distance/total_distance field
-    if (payload.total_distance) {
+    // Add distance field
+    if (payload.total_distance !== undefined) {
       processedPayload.total_distance = payload.total_distance;
     }
     
-    // For full car rides: do NOT include stops and fares
-    // For shared rides: MUST include stops and fares
+    // For shared rides: include stops and fares
     if (!payload.is_full_car) {
+      // IMPORTANT: The backend expects all stops in sequential order
       if (payload.stops && payload.stops.length > 0) {
-        // Ensure stops have required fields
-        const stops = payload.stops.map(stop => ({
-          stop_name: stop.stop_name || stop.address || 'Stop',
+        // Ensure stops have required fields and correct order
+        const stops = payload.stops.map((stop, index) => ({
+          stop_name: stop.stop_name || `Stop ${index + 1}`,
           latitude: stop.latitude,
           longitude: stop.longitude,
           address: stop.address || stop.stop_name,
@@ -226,12 +225,24 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
         processedPayload.stops = stops;
       }
       
+      // IMPORTANT: The backend expects sequential fare segments only
+      // (1→2, 2→3, 3→4, etc.) - NOT all combinations
       if (payload.fares && payload.fares.length > 0) {
+        // Validate that fares are sequential
+        const invalidFares = payload.fares.filter(fare => 
+          fare.to_stop_order - fare.from_stop_order !== 1
+        );
+        
+        if (invalidFares.length > 0) {
+          console.warn('Non-sequential fares detected:', invalidFares);
+          // You might want to filter these out or throw an error
+        }
+        
         processedPayload.fares = payload.fares;
       }
     }
     
-    console.log('Processed payload for API:', processedPayload);
+    console.log('Processed payload for API:', JSON.stringify(processedPayload, null, 2));
     
     const response = await apiRequest('/rides/offer', 'POST', processedPayload, true);
     
@@ -239,9 +250,8 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
   } catch (error: any) {
     console.error('Error in offerRide:', error);
     
-    // Re-throw with more context if needed
     if (error.message.includes('Authentication required') || error.message.includes('session has expired')) {
-      throw error; // Already has good message
+      throw error;
     }
     
     throw new Error(`Failed to publish ride: ${error.message}`);
@@ -284,7 +294,6 @@ export interface Vehicle {
   updated_at: string;
 }
 
-// Get only verified vehicles (verified or approved)
 export const fetchVerifiedVehicles = async (): Promise<Vehicle[]> => {
   try {
     console.log('Fetching verified vehicles...');
@@ -301,7 +310,6 @@ export const fetchVerifiedVehicles = async (): Promise<Vehicle[]> => {
       }
     }
     
-    // Handle different response structures
     let vehicles: Vehicle[] = [];
     
     if (Array.isArray(response)) {
@@ -315,7 +323,6 @@ export const fetchVerifiedVehicles = async (): Promise<Vehicle[]> => {
       vehicles = [];
     }
     
-    // Filter only verified or approved vehicles
     const verifiedVehicles = vehicles.filter(vehicle => 
       vehicle.verification_status === 'verified' || vehicle.verification_status === 'approved'
     );
@@ -325,7 +332,6 @@ export const fetchVerifiedVehicles = async (): Promise<Vehicle[]> => {
   } catch (error: any) {
     console.error('Error fetching vehicles:', error);
     
-    // If it's an auth error, re-throw it
     if (error.message.includes('Authentication required') || 
         error.message.includes('session has expired') ||
         error.message.includes('401') ||
@@ -333,12 +339,10 @@ export const fetchVerifiedVehicles = async (): Promise<Vehicle[]> => {
       throw error;
     }
     
-    // For other errors, return empty array but log it
     return [];
   }
 };
 
-// Get all vehicles (including pending/rejected) - for admin view
 export const fetchAllVehicles = async (): Promise<Vehicle[]> => {
   try {
     console.log('Fetching all vehicles...');
@@ -355,7 +359,6 @@ export const fetchAllVehicles = async (): Promise<Vehicle[]> => {
       }
     }
     
-    // Handle different response structures
     let vehicles: Vehicle[] = [];
     
     if (Array.isArray(response)) {
@@ -377,7 +380,6 @@ export const fetchAllVehicles = async (): Promise<Vehicle[]> => {
   }
 };
 
-// Get a single vehicle by ID
 export const fetchVehicleById = async (vehicleId: number): Promise<Vehicle | null> => {
   try {
     const response = await apiRequest(`/profile/vehicles/${vehicleId}`, 'GET', undefined, true);
@@ -388,12 +390,10 @@ export const fetchVehicleById = async (vehicleId: number): Promise<Vehicle | nul
   }
 };
 
-// Add a new vehicle
 export const addVehicle = async (vehicleData: Partial<Vehicle>): Promise<Vehicle> => {
   return await apiRequest('/profile/vehicles', 'POST', vehicleData, true);
 };
 
-// Verify token validity with backend
 export const verifyToken = async (): Promise<boolean> => {
   try {
     const token = getAuthToken();
@@ -401,7 +401,6 @@ export const verifyToken = async (): Promise<boolean> => {
       return false;
     }
     
-    // Try a lightweight endpoint to verify token
     await apiRequest('/auth/verify-token', 'GET', undefined, true);
     return true;
   } catch {
@@ -409,7 +408,6 @@ export const verifyToken = async (): Promise<boolean> => {
   }
 };
 
-// Refresh token if available
 export const refreshToken = async (): Promise<string | null> => {
   try {
     const refreshToken = localStorage.getItem('refreshToken');
