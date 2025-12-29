@@ -44,6 +44,7 @@ interface RideCreationStatus {
 }
 
 // Add function to check ride creation status
+// Updated function to prevent caching issues
 const checkRideCreationStatus = async (): Promise<RideCreationStatus> => {
   try {
     const tokenSources = [
@@ -66,12 +67,16 @@ const checkRideCreationStatus = async (): Promise<RideCreationStatus> => {
       throw new Error('No authentication token found');
     }
 
+    // Add cache-control headers to prevent 304 responses
     const response = await fetch('https://api-dev.oolalala.com/api/profile/ride-creation-status', {
       method: 'GET',
       headers: {
         'accept': 'application/json',
-        'Authorization': `Bearer ${token}`
-      }
+        'Authorization': `Bearer ${token}`,
+        'Cache-Control': 'no-cache, no-store, must-revalidate', // Prevents caching
+        'Pragma': 'no-cache' // For older HTTP/1.0 compatibility
+      },
+      cache: 'no-store' // Fetch API option to not store the response
     });
 
     if (!response.ok) {
