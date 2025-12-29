@@ -335,19 +335,7 @@ const RideRequestDetail: React.FC = () => {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto ">
         {/* Turn Indicator */}
-        {isMyTurn && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
-              <p className="text-blue-700 font-semibold">
-                It's your turn to respond!
-              </p>
-            </div>
-            <p className="text-blue-600 text-sm mt-1">
-              Current role: <span className="font-semibold capitalize">{userRole}</span>
-            </p>
-          </div>
-        )}
+       
 
         <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
           {/* Left Column - 55% width */}
