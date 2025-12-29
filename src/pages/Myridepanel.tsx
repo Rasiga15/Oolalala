@@ -118,10 +118,10 @@ export function MyRidesPanel() {
   return (
     <div className="min-h-screen bg-background">
       {/* Navbar */}
-      <Navbar />
+      {/* <Navbar /> */}
       
       {/* Main Content */}
-      <div className="pt-16">
+      <div >
         <div className="flex h-[calc(100vh-64px)] animate-fade-in">
           {/* Left Panel - Ride List */}
           <div className={`flex h-full flex-col border-r border-border ${isMobile ? 'w-full' : 'w-full lg:w-1/2'}`}>

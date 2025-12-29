@@ -1,3 +1,4 @@
+// NotificationsPage.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiSearch, FiBell } from 'react-icons/fi';
@@ -6,7 +7,8 @@ import roadTripPromo from '@/assets/NOTIFY.png';
 import { 
   getNotifications, 
   Notification as ApiNotification,
-  markAllNotificationsAsRead 
+  markAllNotificationsAsRead,
+  getBookingDetails 
 } from '@/services/notificationApi';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +25,10 @@ interface Notification {
     type: string;
     bookingId?: number;
     rideId?: number;
+    booking_id?: number;
+    bookingID?: number;
+    bookingId?: number;
+    refId?: string;
   };
 }
 
@@ -35,9 +41,9 @@ const NotificationsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
+  const [isLoadingBooking, setIsLoadingBooking] = useState(false);
   const [clickedNotificationId, setClickedNotificationId] = useState<string | null>(null);
 
-  // Fetch notifications from API
   useEffect(() => {
     const fetchNotifications = async () => {
       if (!isAuthenticated) {
@@ -57,7 +63,6 @@ const NotificationsPage: React.FC = () => {
         const response = await getNotifications();
         
         if (response.notifications && Array.isArray(response.notifications)) {
-          // Transform API notifications to UI format
           const transformedNotifications = response.notifications.map(apiNotif => 
             transformApiNotification(apiNotif)
           );
@@ -78,9 +83,7 @@ const NotificationsPage: React.FC = () => {
     fetchNotifications();
   }, [isAuthenticated, navigate, toast]);
 
-  // Transform API notification to UI format
   const transformApiNotification = (apiNotif: ApiNotification): Notification => {
-    // Parse metadata if it's a string
     let metadata = apiNotif.metadata;
     if (typeof metadata === 'string') {
       try {
@@ -88,6 +91,18 @@ const NotificationsPage: React.FC = () => {
       } catch (e) {
         metadata = { type: 'general' };
       }
+    }
+
+    // Extract booking ID from metadata
+    const bookingId = extractBookingIdFromMetadata(metadata);
+    
+    // If booking ID exists but not in metadata, add it
+    if (bookingId && !metadata?.bookingId && !metadata?.booking_id && !metadata?.bookingID) {
+      metadata = {
+        ...metadata,
+        bookingId: bookingId,
+        booking_id: bookingId
+      };
     }
 
     const notificationType = determineNotificationType(apiNotif.title, metadata);
@@ -104,26 +119,49 @@ const NotificationsPage: React.FC = () => {
     };
   };
 
-  // Determine notification type based on title and metadata
+  // Function to extract booking ID from metadata
+  const extractBookingIdFromMetadata = (metadata: any): number | null => {
+    if (!metadata) return null;
+
+    // Check various possible booking ID fields
+    if (metadata.bookingId) return parseInt(metadata.bookingId);
+    if (metadata.booking_id) return parseInt(metadata.booking_id);
+    if (metadata.bookingID) return parseInt(metadata.bookingID);
+    if (metadata.refId && !isNaN(parseInt(metadata.refId))) return parseInt(metadata.refId);
+    
+    // Check if metadata is an object with nested booking info
+    if (typeof metadata === 'object') {
+      for (const key in metadata) {
+        if (key.toLowerCase().includes('booking') && !isNaN(parseInt(metadata[key]))) {
+          return parseInt(metadata[key]);
+        }
+        if (key.toLowerCase().includes('ref') && !isNaN(parseInt(metadata[key]))) {
+          return parseInt(metadata[key]);
+        }
+      }
+    }
+    
+    return null;
+  };
+
   const determineNotificationType = (title: string, metadata: any): Notification['type'] => {
     const titleLower = title.toLowerCase();
     
-    if (titleLower.includes('request') || titleLower.includes('join')) {
+    if (titleLower.includes('request') || titleLower.includes('join') || metadata?.type === 'NEW_BOOKING_REQUEST') {
       return 'ride_request';
     } else if (titleLower.includes('refund') || titleLower.includes('payment')) {
       return 'refund';
-    } else if (titleLower.includes('complete') || titleLower.includes('completed')) {
+    } else if (titleLower.includes('complete') || titleLower.includes('completed') || metadata?.type === 'BOOKING_RESPONSE') {
       return 'trip_completed';
     } else if (titleLower.includes('cancel') || titleLower.includes('cancelled')) {
       return 'ride_cancelled';
     } else if (metadata?.type) {
-      return metadata.type as Notification['type'];
+      return 'booking_update';
     }
     
     return 'general';
   };
 
-  // Format time for display
   const formatTime = (dateString: string): string => {
     const date = new Date(dateString);
     const now = new Date();
@@ -144,51 +182,43 @@ const NotificationsPage: React.FC = () => {
     });
   };
 
-  // Get action label based on notification type
   const getActionLabel = (type: Notification['type'], metadata: any): string | undefined => {
+    const bookingId = extractBookingIdFromMetadata(metadata);
+    
     switch (type) {
       case 'ride_request':
         return 'View Request';
       case 'refund':
         return 'View Wallet';
       case 'trip_completed':
-        return 'Rate Trip';
+        return bookingId ? 'View Trip Details' : 'Rate Trip';
       case 'booking_update':
         return 'View Booking';
       case 'payment':
         return 'View Payment';
       default:
-        return metadata?.bookingId ? 'View Details' : undefined;
+        return bookingId ? 'View Details' : undefined;
     }
   };
 
-  // Handle card click - only for unread cards (with blue dot)
   const handleCardClick = async (notification: Notification, e: React.MouseEvent) => {
-    // Check if click was on the action button
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON' || target.closest('button')) {
-      // If click was on a button, let the button handler handle it
       return;
     }
 
-    // Only process if the card has blue dot (unread)
     if (!notification.read) {
       setClickedNotificationId(notification.id);
       setIsMarkingAll(true);
 
       try {
-        // Call mark-all-as-read API
-        const response = await markAllNotificationsAsRead();
-        
-        // Update UI immediately - mark all notifications as read
+        await markAllNotificationsAsRead();
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
         
         toast({
           title: "Marked as Read",
-          description: response.message || "All notifications marked as read",
+          description: "All notifications marked as read",
         });
-        
-        console.log('Mark-all-as-read API called for unread notification');
       } catch (err: any) {
         console.error('Error marking all as read:', err);
         toast({
@@ -200,43 +230,88 @@ const NotificationsPage: React.FC = () => {
         setIsMarkingAll(false);
         setClickedNotificationId(null);
       }
-    } else {
-      // Card is already read, just log
-      console.log('Card is already read, no API call needed');
     }
   };
 
-  // Handle action button click
   const handleActionButtonClick = async (notification: Notification) => {
-    // If notification is unread, mark all as read first
+    // Mark all as read first
     if (!notification.read) {
       setIsMarkingAll(true);
       
       try {
         await markAllNotificationsAsRead();
-        
-        // Update UI immediately
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-        
-        console.log('Mark-all-as-read API called before navigation');
       } catch (err: any) {
-        console.error('Error marking all as read before navigation:', err);
-        // Continue with navigation even if marking fails
+        console.error('Error marking all as read:', err);
       } finally {
         setIsMarkingAll(false);
       }
     }
 
-    // Handle navigation based on metadata if available
-    if (notification.metadata?.bookingId) {
-      navigate(`/bookings/${notification.metadata.bookingId}`);
+    // Extract booking ID from metadata
+    const bookingId = extractBookingIdFromMetadata(notification.metadata);
+    
+    if (notification.type === 'ride_request') {
+      await handleRideRequestNotification(notification, bookingId);
+    } else {
+      handleOtherNotificationNavigation(notification, bookingId);
+    }
+  };
+
+  const handleRideRequestNotification = async (notification: Notification, bookingId: number | null) => {
+    try {
+      setIsLoadingBooking(true);
+      
+      if (!bookingId) {
+        toast({
+          title: "Error",
+          description: "Booking ID not found in notification",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      console.log(`Fetching booking details for ID: ${bookingId}`);
+      const bookingDetails = await getBookingDetails(bookingId);
+      
+      // Navigate to ride request details with booking ID and details
+      navigate('/riderequestdetails', { 
+        state: { 
+          bookingDetails,
+          notificationId: notification.id,
+          bookingId: bookingDetails.booking_id || bookingId,
+          source: 'notification'
+        }
+      });
+      
+    } catch (err: any) {
+      console.error('Error fetching booking details:', err);
+      toast({
+        title: "Error",
+        description: err.message || "Failed to load booking details",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingBooking(false);
+    }
+  };
+
+  const handleOtherNotificationNavigation = (notification: Notification, bookingId: number | null) => {
+    // If there's a booking ID, navigate to the ride/trip details page
+    if (bookingId) {
+      navigate(`/riderequestdetails`, { 
+        state: { 
+          bookingId: bookingId,
+          source: 'notification',
+          notificationType: notification.type,
+          notificationTitle: notification.title
+        }
+      });
     } else if (notification.metadata?.rideId) {
       navigate(`/rides/${notification.metadata.rideId}`);
     } else {
+      // Fallback navigation based on notification type
       switch (notification.type) {
-        case 'ride_request':
-          navigate('/ride-requests');
-          break;
         case 'refund':
         case 'payment':
           navigate('/wallet');
@@ -245,6 +320,8 @@ const NotificationsPage: React.FC = () => {
           navigate('/trips');
           break;
         default:
+          // If no booking ID but we have notification, try to navigate to general booking page
+          navigate('/bookings');
           break;
       }
     }
@@ -304,13 +381,11 @@ const NotificationsPage: React.FC = () => {
   const unreadCount = notifications.filter(n => !n.read).length;
   const totalCount = notifications.length;
 
-  // Loading state
   if (isLoading) {
     return (
       <div className="min-h-screen bg-white overflow-hidden">
         <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-col lg:flex-row w-full">
-            {/* Left Side */}
             <div className="flex-1 p-4 sm:p-6 lg:border-r border-gray-100 w-full">
               <div className="animate-pulse w-full">
                 <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
@@ -327,8 +402,6 @@ const NotificationsPage: React.FC = () => {
                 ))}
               </div>
             </div>
-            
-            {/* Right Side */}
             <div className="lg:w-96 p-4 sm:p-6 flex-shrink-0">
               <div className="animate-pulse w-full">
                 <div className="w-full h-80 bg-gray-200 rounded-2xl"></div>
@@ -342,11 +415,8 @@ const NotificationsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-white overflow-x-hidden">
-      {/* Main Content - Full Page Notifications */}
-      <div className="w-full px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Main Content */}
+      <div >
         <div className="flex flex-col lg:flex-row w-full">
-          {/* Left Side - Notifications List */}
           <div className="flex-1 p-2 sm:p-4 lg:p-6 lg:border-r border-gray-100 w-full min-w-0">
             <div className="mb-6 w-full">
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900">All Notifications</h2>
@@ -355,14 +425,12 @@ const NotificationsPage: React.FC = () => {
               </p>
             </div>
 
-            {/* Error Message */}
             {error && (
               <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg w-full">
                 <p className="text-red-600 text-sm">{error}</p>
               </div>
             )}
 
-            {/* Notifications List */}
             <div className="space-y-3 max-h-[calc(100vh-180px)] overflow-y-auto pr-1 w-full">
               {notifications.length === 0 ? (
                 <div className="text-center py-8 sm:py-12 text-gray-500 w-full">
@@ -385,14 +453,13 @@ const NotificationsPage: React.FC = () => {
                       !notification.read 
                         ? 'border-[#21409A] bg-blue-50 border-l-4 border-l-[#21409A] shadow-sm' 
                         : 'border-gray-100 bg-white'
-                    } ${isMarkingAll && clickedNotificationId === notification.id ? 'opacity-70' : ''}`}
+                    } ${(isMarkingAll && clickedNotificationId === notification.id) || isLoadingBooking ? 'opacity-70' : ''}`}
                   >
-                    {/* Loading overlay for clicked card */}
-                    {isMarkingAll && clickedNotificationId === notification.id && (
+                    {(isMarkingAll && clickedNotificationId === notification.id) || isLoadingBooking ? (
                       <div className="absolute inset-0 bg-white/50 flex items-center justify-center z-10 rounded-xl">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#21409A]"></div>
                       </div>
-                    )}
+                    ) : null}
                     
                     {getNotificationIcon(notification.type)}
                     
@@ -427,14 +494,14 @@ const NotificationsPage: React.FC = () => {
                               e.stopPropagation();
                               handleActionButtonClick(notification);
                             }}
-                            disabled={isMarkingAll}
+                            disabled={isMarkingAll || isLoadingBooking}
                             className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full font-medium text-xs sm:text-sm transition-colors whitespace-nowrap ${
                               !notification.read 
                                 ? 'bg-[#21409A] text-white hover:bg-[#1a347a] disabled:opacity-70' 
                                 : getActionButtonStyle(notification.type) + ' disabled:opacity-70'
                             }`}
                           >
-                            {isMarkingAll ? 'Processing...' : notification.actionLabel}
+                            {isLoadingBooking ? 'Loading...' : isMarkingAll ? 'Processing...' : notification.actionLabel}
                           </button>
                         )}
                       </div>
@@ -445,7 +512,6 @@ const NotificationsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Side - Promo Card */}
           <div className="lg:w-96 p-4 sm:p-6 flex items-center justify-center flex-shrink-0">
             <div className="relative w-full max-w-sm rounded-2xl overflow-hidden shadow-lg">
               <img 
@@ -454,8 +520,6 @@ const NotificationsPage: React.FC = () => {
                 className="w-full h-64 sm:h-80 object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-              
-              {/* Text Overlay */}
               <div className="absolute top-4 right-4 text-right">
                 <p className="text-white text-xl sm:text-2xl font-bold italic transform rotate-[-8deg]">
                   All quiet.
@@ -464,8 +528,6 @@ const NotificationsPage: React.FC = () => {
                   Not for long.
                 </p>
               </div>
-              
-              {/* Find a Ride Button */}
               <div className="absolute bottom-4 left-4 right-4">
                 <button 
                   onClick={() => navigate('/')}

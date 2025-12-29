@@ -97,8 +97,7 @@ const OfferRide1: React.FC = () => {
   const [pickupLocation, setPickupLocation] = useState('');
   const [dropLocation, setDropLocation] = useState('');
   const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
-  const [timeFormat, setTimeFormat] = useState<'AM' | 'PM'>('AM');
+  const [time, setTime] = useState(''); // This will store railway time (24-hour format for display)
   const [seats, setSeats] = useState(2);
   const [preferences, setPreferences] = useState<string[]>([]);
   const [selectedPreferences, setSelectedPreferences] = useState<string[]>([]);
@@ -150,52 +149,18 @@ const OfferRide1: React.FC = () => {
   const dropRef = useRef<HTMLDivElement>(null);
   const debounceTimeout = useRef<NodeJS.Timeout>();
 
-  // Function to get current time in 12-hour format with AM/PM
-  const getCurrentTime = () => {
+  // Function to get current time in railway format (24-hour) for display
+  const getCurrentRailwayTime = () => {
     const now = new Date();
-    let hours = now.getHours();
-    const minutes = now.getMinutes();
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
     
-    // Convert to 12-hour format
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12; // 0 should be 12
-    
-    // Format minutes with leading zero
-    const formattedMinutes = minutes < 10 ? '0' + minutes : minutes.toString();
-    
-    // Format time as HH:MM for input[type="time"]
-    const formattedTime = `${hours < 10 ? '0' + hours : hours}:${formattedMinutes}`;
-    
-    return {
-      time: formattedTime,
-      format: ampm
-    };
+    // Return in HH:MM format (24-hour)
+    return `${hours}:${minutes}`;
   };
 
-  // Function to get day/night based on selected time
-  const getDayNight = (selectedTime: string, selectedFormat: 'AM' | 'PM') => {
-    const [hours] = selectedTime.split(':').map(Number);
-    
-    // Convert to 24-hour format for comparison
-    let hour24 = hours;
-    if (selectedFormat === 'PM' && hours !== 12) {
-      hour24 = hours + 12;
-    } else if (selectedFormat === 'AM' && hours === 12) {
-      hour24 = 0;
-    }
-    
-    // Day: 6 AM to 5:59 PM (6:00 to 17:59)
-    // Night: 6 PM to 5:59 AM (18:00 to 5:59)
-    if (hour24 >= 6 && hour24 < 18) {
-      return 'day';
-    } else {
-      return 'night';
-    }
-  };
-
-  // Function to convert 12-hour time to 24-hour format for API
-  const convertTo24HourFormat = (time12h: string, ampm: 'AM' | 'PM'): string => {
+  // Function to convert 12-hour time to railway time (24-hour)
+  const convertToRailwayTime = (time12h: string, ampm: 'AM' | 'PM'): string => {
     let [hours, minutes] = time12h.split(':').map(Number);
     
     if (ampm === 'PM' && hours !== 12) {
@@ -204,16 +169,61 @@ const OfferRide1: React.FC = () => {
       hours = 0;
     }
     
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  };
+
+  // Function to convert railway time to 12-hour format
+  const convertRailwayTo12Hour = (railwayTime: string): { time12h: string, ampm: 'AM' | 'PM' } => {
+    const [hours24, minutes] = railwayTime.split(':').map(Number);
+    let hours12 = hours24 % 12;
+    hours12 = hours12 || 12; // Convert 0 to 12
+    
+    const ampm = hours24 >= 12 ? 'PM' : 'AM';
+    
+    return {
+      time12h: `${hours12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`,
+      ampm
+    };
+  };
+
+  // Function to get day/night based on railway time
+  const getDayNightFromRailwayTime = (railwayTime: string): 'day' | 'night' => {
+    const [hours24] = railwayTime.split(':').map(Number);
+    
+    // Day: 6 AM to 5:59 PM (6:00 to 17:59)
+    // Night: 6 PM to 5:59 AM (18:00 to 5:59)
+    if (hours24 >= 6 && hours24 < 18) {
+      return 'day';
+    } else {
+      return 'night';
+    }
   };
 
   // Function to format time range for display (railway format)
-  const getTimeRangeText = (format: 'AM' | 'PM') => {
-    if (format === 'AM') {
-      return '06:00 - 17:59'; // Day time
+  const getTimeRangeText = (isDayTime: boolean) => {
+    if (isDayTime) {
+      return '06:00 - 17:59'; // Day time in railway format
     } else {
-      return '18:00 - 05:59'; // Night time (railway format)
+      return '18:00 - 05:59'; // Night time in railway format
     }
+  };
+
+  // Function to validate railway time format
+  const isValidRailwayTime = (timeStr: string): boolean => {
+    const regex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    return regex.test(timeStr);
+  };
+
+  // Function to get AM/PM label for current railway time
+  const getAmPmLabel = (railwayTime: string): string => {
+    const [hours24] = railwayTime.split(':').map(Number);
+    return hours24 >= 12 ? 'PM' : 'AM';
+  };
+
+  // Function to get Day/Night label for current railway time
+  const getDayNightLabel = (railwayTime: string): string => {
+    const isDay = getDayNightFromRailwayTime(railwayTime);
+    return isDay === 'day' ? 'Day' : 'Night';
   };
 
   // Check ride creation status on component mount
@@ -266,10 +276,9 @@ const OfferRide1: React.FC = () => {
       const formattedDate = today.toISOString().split('T')[0];
       setDate(formattedDate);
       
-      // Set current time with AM/PM (default to current time)
-      const currentTime = getCurrentTime();
-      setTime(currentTime.time);
-      setTimeFormat(currentTime.format as 'AM' | 'PM');
+      // Set current time in railway format (24-hour)
+      const currentRailwayTime = getCurrentRailwayTime();
+      setTime(currentRailwayTime);
       
       loadSettings();
       loadPreferences();
@@ -646,16 +655,15 @@ const OfferRide1: React.FC = () => {
     setIsNegotiable(!isNegotiable);
   };
 
-  // Handle time input change - convert 24-hour format to 12-hour
+  // Handle railway time input change
   const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputTime = e.target.value;
-    setTime(inputTime);
     
-    // Convert 24-hour format from input to 12-hour for AM/PM display
-    if (inputTime) {
-      const [hours, minutes] = inputTime.split(':').map(Number);
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      setTimeFormat(ampm);
+    // Validate the time format (HH:MM)
+    if (isValidRailwayTime(inputTime)) {
+      setTime(inputTime);
+    } else if (inputTime === '') {
+      setTime('');
     }
   };
 
@@ -674,11 +682,6 @@ const OfferRide1: React.FC = () => {
     if (selectedDate >= today) {
       setDate(selectedDate);
     }
-  };
-
-  // Handle time format change
-  const handleTimeFormatChange = (format: 'AM' | 'PM') => {
-    setTimeFormat(format);
   };
 
   // Handle continue to next screen
@@ -736,9 +739,9 @@ const OfferRide1: React.FC = () => {
       return;
     }
 
-    // Validate time is selected
-    if (!time) {
-      setError('Please select a valid time');
+    // Validate time is selected and valid
+    if (!time || !isValidRailwayTime(time)) {
+      setError('Please select a valid time in 24-hour format (HH:MM)');
       setShowErrorToast(true);
       return;
     }
@@ -747,18 +750,22 @@ const OfferRide1: React.FC = () => {
     setError(null);
     setShowErrorToast(false);
 
-    // Convert date and time to ISO format for API
-    const time24Hour = convertTo24HourFormat(time, timeFormat);
-    const departureTime = new Date(`${date}T${time24Hour}`).toISOString();
+    // Get current day/night status from railway time
+    const isDay = getDayNightFromRailwayTime(time);
+    const ampm = getAmPmLabel(time);
+    
+    // Convert to ISO format for API - Important: We need to add seconds and timezone
+    const timeWithSeconds = `${time}:00`;
+    const departureTime = new Date(`${date}T${timeWithSeconds}`).toISOString();
 
     const rideData = {
       pickup: selectedPickup,
       drop: selectedDrop,
       stops: [],
       date,
-      time,
-      timeFormat,
-      departureTime, // ISO format for API
+      time, // Store railway time (24-hour format)
+      timeFormat: ampm, // Store AM/PM based on railway time
+      departureTime, // ISO format for API (includes date + railway time with seconds)
       seats,
       preferences: selectedPreferences,
       isNegotiable, // Add the new field
@@ -810,6 +817,9 @@ const OfferRide1: React.FC = () => {
       </div>
     );
   }
+
+  // Determine if current railway time is day or night
+  const isDayTime = time ? getDayNightFromRailwayTime(time) === 'day' : true;
 
   return (
     <div className="h-screen overflow-hidden bg-gray-50 flex flex-col">
@@ -892,15 +902,13 @@ const OfferRide1: React.FC = () => {
 
       {/* MAIN AREA - Scrollable on mobile/tablet */}
       <div className="flex-1 pt-4 overflow-hidden">
-        <div className="h-full max-w-6xl mx-auto px-4 py-2 flex flex-col">
+        <div className="h-full max-w-7xl mx-auto px-4 py-2 flex flex-col">
           {/* HEADER */}
-          <div className="mb-4 flex-shrink-0">
+          <div className="mb-4 px-4 flex-shrink-0">
             <h1 className="text-2xl font-bold text-gray-900">
               Offer a Ride
             </h1>
-            <p className="text-sm text-gray-600">
-              Fill the details to create your ride
-            </p>
+           
           </div>
 
           {/* CONTENT - Scrollable on smaller screens */}
@@ -1093,11 +1101,11 @@ const OfferRide1: React.FC = () => {
                   />
                 </div>
 
-                {/* Time with Day/Night toggle */}
+                {/* Time with Day/Night indicator (railway time input) */}
                 <div className="bg-white rounded-lg p-3 border border-gray-300">
                   <div className="flex items-center gap-2 mb-1">
                     <Clock className="text-blue-600" size={16} />
-                    <span className="text-sm font-medium text-gray-900">Time</span>
+                    <span className="text-sm font-medium text-gray-900">Time (24-hour format)</span>
                   </div>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                     <input
@@ -1105,34 +1113,36 @@ const OfferRide1: React.FC = () => {
                       value={time}
                       onChange={handleTimeChange}
                       className="font-bold w-full sm:w-24 outline-none bg-transparent text-gray-900 text-sm"
+                      step="300" // 5 minute increments
                     />
                     <div className="flex border border-gray-300 rounded-md overflow-hidden self-start">
-                      <button
-                        onClick={() => handleTimeFormatChange('AM')}
-                        className={`px-3 py-1.5 flex items-center gap-1.5 text-xs ${
-                          timeFormat === 'AM'
-                            ? 'bg-blue-50 text-blue-600 border-r border-blue-100'
-                            : 'bg-white text-gray-600 border-r border-gray-200'
-                        }`}
-                      >
-                        <Sun size={14} className={timeFormat === 'AM' ? 'text-yellow-500' : 'text-gray-400'} />
+                      <div className={`px-3 py-1.5 flex items-center gap-1.5 text-xs ${
+                        isDayTime 
+                          ? 'bg-blue-50 text-blue-600 border-r border-blue-100' 
+                          : 'bg-white text-gray-600 border-r border-gray-200'
+                      }`}>
+                        <Sun size={14} className={isDayTime ? 'text-yellow-500' : 'text-gray-400'} />
                         <span>Day</span>
-                      </button>
-                      <button
-                        onClick={() => handleTimeFormatChange('PM')}
-                        className={`px-3 py-1.5 flex items-center gap-1.5 text-xs ${
-                          timeFormat === 'PM'
-                            ? 'bg-blue-50 text-blue-600'
-                            : 'bg-white text-gray-600'
-                        }`}
-                      >
-                        <Moon size={14} className={timeFormat === 'PM' ? 'text-blue-500' : 'text-gray-400'} />
+                      </div>
+                      <div className={`px-3 py-1.5 flex items-center gap-1.5 text-xs ${
+                        !isDayTime 
+                          ? 'bg-blue-50 text-blue-600' 
+                          : 'bg-white text-gray-600'
+                      }`}>
+                        <Moon size={14} className={!isDayTime ? 'text-blue-500' : 'text-gray-400'} />
                         <span>Night</span>
-                      </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {timeFormat === 'AM' ? getTimeRangeText('AM') : getTimeRangeText('PM')}
+                  <div className="flex items-center justify-between mt-1">
+                    <div className="text-xs text-gray-500">
+                      {getTimeRangeText(isDayTime)}
+                    </div>
+                    {time && (
+                      <div className="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                        {getAmPmLabel(time)} • {getDayNightLabel(time)}
+                      </div>
+                    )}
                   </div>
                 </div>
 

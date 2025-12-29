@@ -168,12 +168,12 @@ const OfferRide3: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
-      <Navbar />
       
-      <div className="pt-16 px-3 sm:px-4">
-        <div className="max-w-6xl mx-auto">
+      
+      <div className="pt-4 px-3 sm:px-4">
+        <div className="max-w-7xl mx-auto">
           {/* Header */}
-          <div className="mb-5">
+          <div className="mb-5 ">
             <button
               onClick={handleBack}
               className="flex items-center gap-1 text-muted-foreground hover:text-foreground mb-3 text-sm"
@@ -267,7 +267,7 @@ const OfferRide3: React.FC = () => {
                       <React.Fragment key={stop.stopId}>
                         <div className="flex items-center gap-1">
                           <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-medium ${
-                            stop.type === 'ORIGIN' ? 'bg-green-500 text-white' :
+                            stop.type === 'ORIGIN' ? 'bg-blue-500 text-white' :
                             stop.type === 'DESTINATION' ? 'bg-red-500 text-white' :
                             'bg-blue-500 text-white'
                           }`}>

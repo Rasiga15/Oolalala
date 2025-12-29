@@ -22,31 +22,31 @@ const decodePolyline = (encoded: string): google.maps.LatLngLiteral[] => {
     let b: number;
     let shift = 0;
     let result = 0;
-    
+
     do {
       b = encoded.charCodeAt(index++) - 63;
       result |= (b & 0x1f) << shift;
       shift += 5;
     } while (b >= 0x20);
-    
+
     const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
     lat += dlat;
 
     shift = 0;
     result = 0;
-    
+
     do {
       b = encoded.charCodeAt(index++) - 63;
       result |= (b & 0x1f) << shift;
       shift += 5;
     } while (b >= 0x20);
-    
+
     const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
     lng += dlng;
 
     points.push({ lat: lat * 1e-5, lng: lng * 1e-5 });
   }
-  
+
   return points;
 };
 
@@ -56,22 +56,22 @@ const calculateDistanceFromPointToPolyline = (
   polylinePoints: google.maps.LatLngLiteral[]
 ): number => {
   if (polylinePoints.length === 0) return Infinity;
-  
+
   let minDistance = Infinity;
-  
+
   // Calculate distance to each segment of the polyline
   for (let i = 0; i < polylinePoints.length - 1; i++) {
     const segmentStart = polylinePoints[i];
     const segmentEnd = polylinePoints[i + 1];
-    
+
     // Calculate distance to line segment
     const distance = calculateDistance(point, segmentStart);
-    
+
     if (distance < minDistance) {
       minDistance = distance;
     }
   }
-  
+
   return minDistance;
 };
 
@@ -88,15 +88,15 @@ const validateStopOnPolylineRoute = (
       distanceFromRoute: Infinity
     };
   }
-  
+
   const distanceFromRoute = calculateDistanceFromPointToPolyline(stop, polylinePoints);
-  
+
   const isValid = distanceFromRoute <= maxDistanceKm;
-  
+
   return {
     isValid,
-    message: isValid 
-      ? `Location is on the route (${distanceFromRoute.toFixed(1)} km from route line)` 
+    message: isValid
+      ? `Location is on the route (${distanceFromRoute.toFixed(1)} km from route line)`
       : `Location is ${distanceFromRoute.toFixed(1)} km away from the route. Maximum allowed distance is ${maxDistanceKm} km.`,
     distanceFromRoute
   };
@@ -135,7 +135,7 @@ const ToastNotification: React.FC<{
 // Helper function to check if a string is a coordinate
 const isCoordinateString = (text: string): boolean => {
   if (!text || text.trim().length === 0) return false;
-  
+
   // Pattern for coordinates like "12.8122, 79.8168" or "-12.8122, -79.8168"
   const coordinatePattern = /^\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*$/;
   return coordinatePattern.test(text);
@@ -144,7 +144,7 @@ const isCoordinateString = (text: string): boolean => {
 // Extract best location name from address components
 const extractBestLocationName = (addressComponents: any[]): string => {
   if (!addressComponents || addressComponents.length === 0) return '';
-  
+
   // Priority order for location types
   const priorityTypes = [
     'locality',          // City/Town
@@ -155,19 +155,19 @@ const extractBestLocationName = (addressComponents: any[]): string => {
     'administrative_area_level_1', // State
     'postal_town',       // Postal town
   ];
-  
+
   // Try to find the most specific type first
   for (const type of priorityTypes) {
     for (const component of addressComponents) {
       const types = component.types || [];
       const longName = component.long_name || '';
-      
+
       if (types.includes(type) && longName && !isCoordinateString(longName)) {
         return longName;
       }
     }
   }
-  
+
   // Fallback: Return the first non-coordinate, non-numeric component
   for (const component of addressComponents) {
     const longName = component.long_name || '';
@@ -175,25 +175,25 @@ const extractBestLocationName = (addressComponents: any[]): string => {
       return longName;
     }
   }
-  
+
   return '';
 };
 
 // Extract city name from full address
 const extractCityFromAddress = (fullAddress: string): string => {
   if (!fullAddress) return '';
-  
+
   const parts = fullAddress.split(',');
-  
+
   // Try to find city name (usually the first part)
   for (let i = 0; i < Math.min(parts.length, 3); i++) {
     const part = parts[i].trim();
-    
+
     // Skip if it's a coordinate or empty
     if (!part || isCoordinateString(part) || /^\d+$/.test(part)) {
       continue;
     }
-    
+
     // Skip country/state/district indicators
     const lowerPart = part.toLowerCase();
     if (
@@ -206,13 +206,13 @@ const extractCityFromAddress = (fullAddress: string): string => {
     ) {
       continue;
     }
-    
+
     // Check if it's a reasonable city name (2-30 characters)
     if (part.length >= 2 && part.length <= 30) {
       return part;
     }
   }
-  
+
   // Return first meaningful part
   for (const part of parts) {
     const trimmed = part.trim();
@@ -220,77 +220,77 @@ const extractCityFromAddress = (fullAddress: string): string => {
       return trimmed;
     }
   }
-  
+
   return '';
 };
 
 // Get accurate location name from coordinates - UPDATED WITH CACHING FOR BETTER PERFORMANCE
-const getAccurateLocationName = async (lat: number, lng: number): Promise<{name: string, address: string}> => {
+const getAccurateLocationName = async (lat: number, lng: number): Promise<{ name: string, address: string }> => {
   const cacheKey = `${lat.toFixed(6)}_${lng.toFixed(6)}`;
-  
+
   // Check cache first
   if (window.locationNameCache && window.locationNameCache[cacheKey]) {
     return window.locationNameCache[cacheKey];
   }
-  
+
   try {
     // First try using reverse geocoding with detailed result_type
     const reverseResults = await reverseGeocode(lat, lng);
-    
+
     if (reverseResults.length > 0) {
       const fullAddress = reverseResults[0].formattedAddress || '';
-      
+
       // Try to get detailed geocoding information
       const detailedResponse = await fetch(
         `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyCsWQJdiuPGmabvpX-_4FhyC9C5GKu3TLk&language=en&result_type=locality|sublocality|administrative_area_level_2|neighborhood|route`
       );
-      
+
       if (detailedResponse.ok) {
         const detailedData = await detailedResponse.json();
-        
+
         if (detailedData.status === 'OK' && detailedData.results && detailedData.results.length > 0) {
           const result = detailedData.results[0];
           const addressComponents = result.address_components || [];
-          
+
           // Try to extract best name from address components
           const bestName = extractBestLocationName(addressComponents);
-          
+
           if (bestName && bestName !== '') {
             const locationData = {
               name: bestName,
               address: fullAddress
             };
-            
+
             // Cache the result
             if (!window.locationNameCache) {
               window.locationNameCache = {};
             }
             window.locationNameCache[cacheKey] = locationData;
-            
+
             return locationData;
           }
-          
+
           // If no good name from components, try to extract from formatted address
           const formattedAddress = result.formatted_address || fullAddress;
           const cityName = extractCityFromAddress(formattedAddress);
-          
+
           if (cityName && cityName !== '') {
             const locationData = {
               name: cityName,
               address: formattedAddress
             };
-            
+
             // Cache the result
             if (!window.locationNameCache) {
               window.locationNameCache = {};
             }
             window.locationNameCache[cacheKey] = locationData;
-            
+
             return locationData;
           }
         }
       }
-      
+
       // Fallback: Extract city name from full address
       const cityName = extractCityFromAddress(fullAddress);
       if (cityName && cityName !== '') {
@@ -298,16 +298,16 @@ const getAccurateLocationName = async (lat: number, lng: number): Promise<{name:
           name: cityName,
           address: fullAddress
         };
-        
+
         // Cache the result
         if (!window.locationNameCache) {
           window.locationNameCache = {};
         }
         window.locationNameCache[cacheKey] = locationData;
-        
+
         return locationData;
       }
-      
+
       // Last resort: Return first part of address
       const firstPart = fullAddress.split(',')[0].trim();
       if (firstPart && !isCoordinateString(firstPart)) {
@@ -315,39 +315,39 @@ const getAccurateLocationName = async (lat: number, lng: number): Promise<{name:
           name: firstPart,
           address: fullAddress
         };
-        
+
         // Cache the result
         if (!window.locationNameCache) {
           window.locationNameCache = {};
         }
         window.locationNameCache[cacheKey] = locationData;
-        
+
         return locationData;
       }
     }
   } catch (error) {
     console.error('Error getting accurate location name:', error);
   }
-  
+
   // Fallback to coordinates if everything fails
   const fallbackData = {
     name: `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
     address: `Latitude: ${lat.toFixed(6)}, Longitude: ${lng.toFixed(6)}`
   };
-  
+
   // Cache even the fallback
   if (!window.locationNameCache) {
     window.locationNameCache = {};
   }
   window.locationNameCache[cacheKey] = fallbackData;
-  
+
   return fallbackData;
 };
 
 // Add type for window cache
 declare global {
   interface Window {
-    locationNameCache?: Record<string, {name: string, address: string}>;
+    locationNameCache?: Record<string, { name: string, address: string }>;
   }
 }
 
@@ -409,7 +409,7 @@ const ManualStopSearchModal: React.FC<{
     location: { lat: number; lng: number };
   }) => {
     setSelectedPlace(place);
-    
+
     // Validate if place is on the polyline route (within 50km)
     const validationResult = validateStopOnPolylineRoute(
       place.location,
@@ -427,7 +427,7 @@ const ManualStopSearchModal: React.FC<{
         selectedPlace.location.lat,
         selectedPlace.location.lng
       );
-      
+
       onConfirm({
         stopId: Date.now(),
         type: 'STOP',
@@ -460,7 +460,7 @@ const ManualStopSearchModal: React.FC<{
               <X size={18} />
             </button>
           </div>
-          
+
           <div className="mb-4">
             <div className="p-3 rounded-lg bg-red-50 border border-red-200">
               <div className="flex items-center gap-2 text-red-600">
@@ -468,12 +468,12 @@ const ManualStopSearchModal: React.FC<{
                 <span className="text-sm">Stops are not allowed for full car rides</span>
               </div>
               <p className="mt-2 text-sm text-gray-600">
-                Since this is a full car ride (private), you cannot add intermediate stops. 
+                Since this is a full car ride (private), you cannot add intermediate stops.
                 The ride will go directly from pickup to destination.
               </p>
             </div>
           </div>
-          
+
           <div className="flex gap-2">
             <button
               onClick={onClose}
@@ -502,7 +502,7 @@ const ManualStopSearchModal: React.FC<{
           <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded mb-2">
             <div className="flex items-center gap-1 mb-1">
               <div className="w-2 h-2 rounded-full bg-green-500"></div>
-              <span className="font-medium">Route:</span> 
+              <span className="font-medium">Route:</span>
               <span>Selected route polyline (within 50km)</span>
             </div>
             <div className="text-xs mt-1">
@@ -526,11 +526,10 @@ const ManualStopSearchModal: React.FC<{
             <button
               onClick={handleSearch}
               disabled={!searchQuery.trim() || isSearching}
-              className={`absolute right-2 top-1/2 transform -translate-y-1/2 px-2 py-1 text-xs rounded ${
-                !searchQuery.trim() || isSearching
+              className={`absolute right-2 top-1/2 transform -translate-y-1/2 px-2 py-1 text-xs rounded ${!searchQuery.trim() || isSearching
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-[#21409A] text-white hover:bg-[#1a357c]'
-              }`}
+                }`}
             >
               {isSearching ? 'Searching...' : 'Search'}
             </button>
@@ -549,11 +548,10 @@ const ManualStopSearchModal: React.FC<{
                 <div
                   key={place.placeId}
                   onClick={() => handlePlaceSelect(place)}
-                  className={`p-2 rounded-lg border cursor-pointer transition-all ${
-                    selectedPlace?.placeId === place.placeId
+                  className={`p-2 rounded-lg border cursor-pointer transition-all ${selectedPlace?.placeId === place.placeId
                       ? 'border-[#21409A] bg-[#21409A]/5'
                       : 'border-gray-200 hover:border-[#21409A]/50 hover:bg-[#21409A]/2'
-                  }`}
+                    }`}
                 >
                   <div className="font-medium text-gray-800 text-sm">{place.name}</div>
                   <div className="text-xs text-gray-500 truncate">{place.address}</div>
@@ -575,7 +573,7 @@ const ManualStopSearchModal: React.FC<{
                 Clear
               </button>
             </div>
-            
+
             <div className="mb-2">
               <div className="font-medium text-sm">{selectedPlace.name}</div>
               <div className="text-xs text-gray-500">{selectedPlace.address}</div>
@@ -615,11 +613,10 @@ const ManualStopSearchModal: React.FC<{
           <button
             onClick={handleConfirm}
             disabled={!selectedPlace || !validation.isValid}
-            className={`flex-1 py-2 rounded-lg font-medium ${
-              selectedPlace && validation.isValid
-                ? 'bg-[#21409A] text-white hover:bg-[#1a357c]' 
+            className={`flex-1 py-2 rounded-lg font-medium ${selectedPlace && validation.isValid
+                ? 'bg-[#21409A] text-white hover:bg-[#1a357c]'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
+              }`}
           >
             Add Stop
           </button>
@@ -675,7 +672,7 @@ const AddStopModal: React.FC<{
     if (isOpen && position) {
       fetchAccurateName();
     }
-    
+
     // Reset when modal closes
     return () => {
       if (!isOpen) {
@@ -707,7 +704,7 @@ const AddStopModal: React.FC<{
               <X size={18} />
             </button>
           </div>
-          
+
           <div className="mb-4">
             <div className="p-3 rounded-lg bg-red-50 border border-red-200">
               <div className="flex items-center gap-2 text-red-600">
@@ -715,12 +712,12 @@ const AddStopModal: React.FC<{
                 <span className="text-sm">Stops are not allowed for full car rides</span>
               </div>
               <p className="mt-2 text-sm text-gray-600">
-                Since this is a full car ride (private), you cannot add intermediate stops. 
+                Since this is a full car ride (private), you cannot add intermediate stops.
                 The ride will go directly from pickup to destination.
               </p>
             </div>
           </div>
-          
+
           <div className="flex gap-2">
             <button
               onClick={onClose}
@@ -743,7 +740,7 @@ const AddStopModal: React.FC<{
             <X size={18} />
           </button>
         </div>
-        
+
         <div className="mb-3">
           <div className="text-sm text-gray-600 mb-1">Stop Name:</div>
           <div className="relative">
@@ -787,7 +784,7 @@ const AddStopModal: React.FC<{
             <span className="text-sm">{validationMessage}</span>
           </div>
         </div>
-        
+
         <div className="flex flex-col sm:flex-row gap-2">
           <button
             onClick={() => {
@@ -803,11 +800,10 @@ const AddStopModal: React.FC<{
               }
             }}
             disabled={!isValid || !stopName || loadingName}
-            className={`flex-1 py-2 rounded-lg font-medium ${
-              isValid && stopName && !loadingName
-                ? 'bg-[#21409A] text-white hover:bg-[#1a357c]' 
+            className={`flex-1 py-2 rounded-lg font-medium ${isValid && stopName && !loadingName
+                ? 'bg-[#21409A] text-white hover:bg-[#1a357c]'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
+              }`}
           >
             {loadingName ? 'Loading...' : 'Add Stop'}
           </button>
@@ -843,7 +839,7 @@ const InvalidStopModal: React.FC<{
             <X size={18} />
           </button>
         </div>
-        
+
         <div className="mb-3">
           <div className="p-2 rounded-lg bg-red-50 border border-red-200">
             <div className="flex items-center gap-2 text-red-600 mb-1">
@@ -871,7 +867,7 @@ const InvalidStopModal: React.FC<{
               </div>
             </div>
           </div>
-          
+
           <div className="flex items-start gap-2">
             <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs flex-shrink-0 mt-0.5">
               i
@@ -902,7 +898,7 @@ const InvalidStopModal: React.FC<{
             </div>
           </div>
         </div>
-        
+
         <div className="flex gap-2">
           <button
             onClick={onClose}
@@ -971,17 +967,45 @@ const OfferRide2: React.FC = () => {
 
   // Get current polyline points
   const selectedRouteData = routes.find(r => r.id === selectedRoute);
-  const polylinePath = selectedRouteData?.polyline 
+  const polylinePath = selectedRouteData?.polyline
     ? decodePolyline(selectedRouteData.polyline)
     : [];
+
+
+  const formatDurationHrMin = (duration: string): string => {
+    // Seconds format (e.g. "2700s")
+    if (/^\d+s$/.test(duration)) {
+      const totalSeconds = Number(duration.replace('s', ''));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.round((totalSeconds % 3600) / 60);
+
+      if (hours > 0) {
+        return `${hours} hr ${minutes} min`;
+      }
+      return `${minutes} min`;
+    }
+
+    // ISO 8601 format (e.g. "PT1H30M")
+    if (duration.startsWith('PT')) {
+      const h = duration.match(/(\d+)H/)?.[1];
+      const m = duration.match(/(\d+)M/)?.[1];
+
+      if (h && m) return `${h} hr ${m} min`;
+      if (h) return `${h} hr`;
+      if (m) return `${m} min`;
+    }
+
+    // Already formatted (safe fallback)
+    return duration;
+  };
 
   // Background fare calculation functions
   const calculateSegmentFare = (distanceKm: number): number => {
     if (!rideData) return 0;
-    
+
     const farePerKm = parseFloat(rideData.settings?.fare_per_km_car || '12');
     const seats = rideData.seats || 1;
-    
+
     const baseFare = distanceKm * farePerKm / seats;
     return Math.round(baseFare / 10) * 10;
   };
@@ -1004,22 +1028,22 @@ const OfferRide2: React.FC = () => {
       return;
     }
 
-    setMapCenter({ 
-      lat: rideData.pickup.lat, 
-      lng: rideData.pickup.lng 
+    setMapCenter({
+      lat: rideData.pickup.lat,
+      lng: rideData.pickup.lng
     });
     setMapZoom(12);
-    
+
     // Initialize stops with proper names
     const initializeStops = async () => {
       const initialStops: StopPoint[] = [];
-      
+
       // Get accurate name for pickup
       const pickupName = await getAccurateLocationName(
         rideData.pickup.lat,
         rideData.pickup.lng
       );
-      
+
       initialStops.push({
         stopId: 1,
         type: 'ORIGIN',
@@ -1028,13 +1052,13 @@ const OfferRide2: React.FC = () => {
         lat: rideData.pickup.lat,
         lng: rideData.pickup.lng
       });
-      
+
       // Get accurate name for drop
       const dropName = await getAccurateLocationName(
         rideData.drop.lat,
         rideData.drop.lng
       );
-      
+
       initialStops.push({
         stopId: 2,
         type: 'DESTINATION',
@@ -1043,17 +1067,17 @@ const OfferRide2: React.FC = () => {
         lat: rideData.drop.lat,
         lng: rideData.drop.lng
       });
-      
+
       // Use setState callback to ensure proper update
       setStopPoints(prev => {
         const updatedStops = [...initialStops];
         console.log('Initializing stops:', updatedStops);
         return updatedStops;
       });
-      
+
       loadRoutes(initialStops);
     };
-    
+
     initializeStops();
   }, [rideData, navigate]);
 
@@ -1061,12 +1085,12 @@ const OfferRide2: React.FC = () => {
     setIsLoading(true);
     try {
       const sortedStops = [...stops].sort((a, b) => a.stopId - b.stopId);
-      
-      const intermediateStops = isFullCar 
-        ? [] 
+
+      const intermediateStops = isFullCar
+        ? []
         : sortedStops
-            .filter(stop => stop.type === 'STOP')
-            .map(stop => ({ lat: stop.lat, lng: stop.lng }));
+          .filter(stop => stop.type === 'STOP')
+          .map(stop => ({ lat: stop.lat, lng: stop.lng }));
 
       const results = await computeRoutes(
         { lat: rideData.pickup.lat, lng: rideData.pickup.lng },
@@ -1079,7 +1103,7 @@ const OfferRide2: React.FC = () => {
         const routeOptions: RouteOption[] = results.routes.map((route, index) => {
           const durationSeconds = parseDurationToSeconds(route.duration);
           const durationFormatted = formatDuration(route.duration);
-          
+
           return {
             id: index + 1,
             duration: durationFormatted,
@@ -1093,12 +1117,12 @@ const OfferRide2: React.FC = () => {
         });
 
         setRoutes(routeOptions);
-        
+
         if (results.routes[0]?.legs) {
           const segments = results.routes[0].legs.map((leg, index) => {
             const fromStop = sortedStops[index];
             const toStop = sortedStops[index + 1];
-            
+
             return {
               from: fromStop?.name || 'Unknown',
               to: toStop?.name || 'Unknown',
@@ -1125,7 +1149,7 @@ const OfferRide2: React.FC = () => {
         },
       ];
       setRoutes(fallbackRoutes);
-      
+
       const sortedStops = [...stops].sort((a, b) => a.stopId - b.stopId);
       const fallbackSegments = [];
       for (let i = 0; i < sortedStops.length - 1; i++) {
@@ -1135,7 +1159,7 @@ const OfferRide2: React.FC = () => {
           { lat: from.lat, lng: from.lng },
           { lat: to.lat, lng: to.lng }
         );
-        
+
         fallbackSegments.push({
           from: from.name,
           to: to.name,
@@ -1151,7 +1175,7 @@ const OfferRide2: React.FC = () => {
 
   const formatDuration = (duration: string): string => {
     if (!duration) return '0 min';
-    
+
     const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
     if (!match) return duration;
 
@@ -1166,7 +1190,7 @@ const OfferRide2: React.FC = () => {
 
   const parseDurationToSeconds = (duration: string): number => {
     if (!duration) return 0;
-    
+
     const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
     if (!match) return 0;
 
@@ -1186,7 +1210,7 @@ const OfferRide2: React.FC = () => {
   }>> => {
     const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
     const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
-    
+
     if (!origin || !destination) {
       throw new Error('Origin or destination not found');
     }
@@ -1225,11 +1249,11 @@ const OfferRide2: React.FC = () => {
   const handleManualSearchStop = async (stopData: StopPoint) => {
     const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
     const destination = stopPoints.find(stop => stop.type === 'DESTINATION');
-    
+
     if (!origin || !destination) {
-      setToast({ 
-        message: 'Origin or destination not found', 
-        type: 'error' 
+      setToast({
+        message: 'Origin or destination not found',
+        type: 'error'
       });
       return;
     }
@@ -1257,40 +1281,40 @@ const OfferRide2: React.FC = () => {
         stopData.lat,
         stopData.lng
       );
-      
+
       const maxStopId = Math.max(...stopPoints.map(stop => stop.stopId));
       const newStopId = maxStopId + 1;
-      
+
       const newStop: StopPoint = {
         ...stopData,
         stopId: newStopId,
         name: accurateName.name,
         address: accurateName.address
       };
-      
+
       // Use setState callback to ensure immediate update
       setStopPoints(prevStops => {
         const updatedStops = [...prevStops];
         const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
         updatedStops.splice(destinationIndex, 0, newStop);
-        
+
         // Reassign stop IDs
         const reassignedStops = updatedStops.map((stop, index) => ({
           ...stop,
           stopId: index + 1
         }));
-        
+
         console.log('Manual search stop added:', reassignedStops);
         return reassignedStops;
       });
-      
+
       setManualSearchModal({ isOpen: false });
-      
-      setToast({ 
-        message: 'Stop added successfully!', 
-        type: 'success' 
+
+      setToast({
+        message: 'Stop added successfully!',
+        type: 'success'
       });
-      
+
       // Recalculate routes
       setIsRecalculating(true);
       setTimeout(() => {
@@ -1302,18 +1326,18 @@ const OfferRide2: React.FC = () => {
       }, 500);
     } catch (error) {
       console.error('Error adding stop:', error);
-      setToast({ 
-        message: 'Failed to add stop', 
-        type: 'error' 
+      setToast({
+        message: 'Failed to add stop',
+        type: 'error'
       });
     }
   };
 
   const handleOneClickAddStop = async () => {
     if (isFullCar) {
-      setToast({ 
-        message: 'Stops are not allowed for full car rides', 
-        type: 'error' 
+      setToast({
+        message: 'Stops are not allowed for full car rides',
+        type: 'error'
       });
       return;
     }
@@ -1321,9 +1345,9 @@ const OfferRide2: React.FC = () => {
     try {
       // Find a point on the polyline route for midpoint
       if (polylinePath.length === 0) {
-        setToast({ 
-          message: 'No route selected. Please select a route first.', 
-          type: 'error' 
+        setToast({
+          message: 'No route selected. Please select a route first.',
+          type: 'error'
         });
         return;
       }
@@ -1331,17 +1355,17 @@ const OfferRide2: React.FC = () => {
       // Take the midpoint of the polyline
       const midIndex = Math.floor(polylinePath.length / 2);
       const midPoint = polylinePath[midIndex];
-      
+
       // Get accurate name from coordinates
       const accurateName = await getAccurateLocationName(midPoint.lat, midPoint.lng);
-      
+
       // Validate the stop location is on the polyline route
       const validation = validateStopOnPolylineRoute(
         midPoint,
         polylinePath,
         50
       );
-      
+
       if (!validation.isValid) {
         setInvalidStopModal({
           isOpen: true,
@@ -1351,10 +1375,10 @@ const OfferRide2: React.FC = () => {
         });
         return;
       }
-      
+
       const maxStopId = Math.max(...stopPoints.map(stop => stop.stopId));
       const newStopId = maxStopId + 1;
-      
+
       const newStop: StopPoint = {
         stopId: newStopId,
         type: 'STOP',
@@ -1363,28 +1387,28 @@ const OfferRide2: React.FC = () => {
         lat: midPoint.lat,
         lng: midPoint.lng
       };
-      
+
       // Use setState callback to ensure immediate update
       setStopPoints(prevStops => {
         const updatedStops = [...prevStops];
         const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
         updatedStops.splice(destinationIndex, 0, newStop);
-        
+
         // Reassign stop IDs
         const reassignedStops = updatedStops.map((stop, index) => ({
           ...stop,
           stopId: index + 1
         }));
-        
+
         console.log('One-click stop added:', reassignedStops);
         return reassignedStops;
       });
-      
-      setToast({ 
-        message: 'Stop added on route!', 
-        type: 'success' 
+
+      setToast({
+        message: 'Stop added on route!',
+        type: 'success'
       });
-      
+
       // Recalculate routes
       setIsRecalculating(true);
       setTimeout(() => {
@@ -1394,12 +1418,12 @@ const OfferRide2: React.FC = () => {
         });
         setIsRecalculating(false);
       }, 500);
-      
+
     } catch (error) {
       console.error('Error adding midpoint stop:', error);
-      setToast({ 
-        message: 'Failed to add stop', 
-        type: 'error' 
+      setToast({
+        message: 'Failed to add stop',
+        type: 'error'
       });
     }
   };
@@ -1418,7 +1442,7 @@ const OfferRide2: React.FC = () => {
     }
 
     if (!isAddStopMode || !e.latLng) return;
-    
+
     const lat = e.latLng.lat();
     const lng = e.latLng.lng();
 
@@ -1463,12 +1487,12 @@ const OfferRide2: React.FC = () => {
 
   const confirmAddStop = async (stopData: StopPoint) => {
     if (isFullCar) {
-      setAddStopModal({ 
-        isOpen: false, 
-        position: null, 
-        address: '', 
-        isValid: false, 
-        validationMessage: '' 
+      setAddStopModal({
+        isOpen: false,
+        position: null,
+        address: '',
+        isValid: false,
+        validationMessage: ''
       });
       setIsAddStopMode(false);
       return;
@@ -1477,42 +1501,42 @@ const OfferRide2: React.FC = () => {
     try {
       const maxStopId = Math.max(...stopPoints.map(stop => stop.stopId));
       const newStopId = maxStopId + 1;
-      
+
       const newStop: StopPoint = {
         ...stopData,
         stopId: newStopId
       };
-      
+
       // Use setState callback to ensure immediate update
       setStopPoints(prevStops => {
         const updatedStops = [...prevStops];
         const destinationIndex = updatedStops.findIndex(stop => stop.type === 'DESTINATION');
         updatedStops.splice(destinationIndex, 0, newStop);
-        
+
         // Reassign stop IDs
         const reassignedStops = updatedStops.map((stop, index) => ({
           ...stop,
           stopId: index + 1
         }));
-        
+
         console.log('Map click stop added:', reassignedStops);
         return reassignedStops;
       });
-      
-      setAddStopModal({ 
-        isOpen: false, 
-        position: null, 
-        address: '', 
-        isValid: false, 
-        validationMessage: '' 
+
+      setAddStopModal({
+        isOpen: false,
+        position: null,
+        address: '',
+        isValid: false,
+        validationMessage: ''
       });
       setIsAddStopMode(false);
-      
-      setToast({ 
-        message: 'Stop added successfully!', 
-        type: 'success' 
+
+      setToast({
+        message: 'Stop added successfully!',
+        type: 'success'
       });
-      
+
       // Recalculate routes
       setIsRecalculating(true);
       setTimeout(() => {
@@ -1524,51 +1548,51 @@ const OfferRide2: React.FC = () => {
       }, 500);
     } catch (error) {
       console.error('Error adding stop:', error);
-      setToast({ 
-        message: 'Failed to add stop', 
-        type: 'error' 
+      setToast({
+        message: 'Failed to add stop',
+        type: 'error'
       });
     }
   };
 
   const removeStop = (stopId: number) => {
     if (isFullCar) {
-      setToast({ 
-        message: 'Cannot modify stops for full car rides', 
-        type: 'error' 
+      setToast({
+        message: 'Cannot modify stops for full car rides',
+        type: 'error'
       });
       return;
     }
 
     const stopToRemove = stopPoints.find(stop => stop.stopId === stopId);
-    
+
     if (stopToRemove?.type === 'ORIGIN' || stopToRemove?.type === 'DESTINATION') {
-      setToast({ 
-        message: `Cannot remove ${stopToRemove.type}`, 
-        type: 'error' 
+      setToast({
+        message: `Cannot remove ${stopToRemove.type}`,
+        type: 'error'
       });
       return;
     }
-    
+
     // Use setState callback to ensure immediate update
     setStopPoints(prevStops => {
       const newStops = prevStops.filter(stop => stop.stopId !== stopId);
-      
+
       // Reassign stop IDs
       const reassignedStops = newStops.map((stop, index) => ({
         ...stop,
         stopId: index + 1
       }));
-      
+
       console.log('Stop removed:', reassignedStops);
       return reassignedStops;
     });
-    
-    setToast({ 
-      message: 'Stop removed successfully', 
-      type: 'info' 
+
+    setToast({
+      message: 'Stop removed successfully',
+      type: 'info'
     });
-    
+
     // Recalculate routes
     setIsRecalculating(true);
     setTimeout(() => {
@@ -1592,26 +1616,26 @@ const OfferRide2: React.FC = () => {
     const totalDuration = selectedRouteData.durationSeconds;
     const farePerKm = parseFloat(rideData.settings?.fare_per_km_car || '12');
     const seats = rideData.seats || 1;
-    
+
     const calculatedPrice = Math.round((totalDistanceKm * farePerKm / seats) / 10) * 10;
-    
+
     const fareCombinations = [];
-    
+
     const sortedStops = [...stopPoints].sort((a, b) => a.stopId - b.stopId);
-    
+
     for (let i = 0; i < sortedStops.length - 1; i++) {
       for (let j = i + 1; j < sortedStops.length; j++) {
         const fromStop = sortedStops[i];
         const toStop = sortedStops[j];
-        
+
         let segmentDistance = 0;
         for (let k = i; k < j; k++) {
           segmentDistance += routeSegments[k]?.distance || 0;
         }
-        
+
         const calculatedFare = segmentDistance * farePerKm / seats;
         const fare = Math.round(Math.max(10, calculatedFare) / 10) * 10;
-        
+
         fareCombinations.push({
           from_stop_order: fromStop.stopId,
           to_stop_order: toStop.stopId,
@@ -1644,16 +1668,16 @@ const OfferRide2: React.FC = () => {
 
   const recalculateRoute = async (avoidTolls: boolean) => {
     if (!rideData) return;
-    
+
     setIsRecalculating(true);
     try {
       const sortedStops = [...stopPoints].sort((a, b) => a.stopId - b.stopId);
-      
-      const intermediateStops = isFullCar 
-        ? [] 
+
+      const intermediateStops = isFullCar
+        ? []
         : sortedStops
-            .filter(stop => stop.type === 'STOP')
-            .map(stop => ({ lat: stop.lat, lng: stop.lng }));
+          .filter(stop => stop.type === 'STOP')
+          .map(stop => ({ lat: stop.lat, lng: stop.lng }));
 
       const results = await computeRoutes(
         { lat: rideData.pickup.lat, lng: rideData.pickup.lng },
@@ -1681,12 +1705,12 @@ const OfferRide2: React.FC = () => {
         if (routeOptions[0]) {
           setSelectedRoute(1);
         }
-        
+
         if (results.routes[0]?.legs) {
           const segments = results.routes[0].legs.map((leg, index) => {
             const fromStop = sortedStops[index];
             const toStop = sortedStops[index + 1];
-            
+
             return {
               from: fromStop?.name || 'Unknown',
               to: toStop?.name || 'Unknown',
@@ -1699,9 +1723,9 @@ const OfferRide2: React.FC = () => {
       }
     } catch (error) {
       console.error('Error recalculating route:', error);
-      setToast({ 
-        message: 'Failed to recalculate route', 
-        type: 'error' 
+      setToast({
+        message: 'Failed to recalculate route',
+        type: 'error'
       });
     } finally {
       setIsRecalculating(false);
@@ -1709,9 +1733,9 @@ const OfferRide2: React.FC = () => {
   };
 
   const sortedStops = [...stopPoints].sort((a, b) => a.stopId - b.stopId);
-  const fallbackPolylinePath = sortedStops.map(stop => ({ 
-    lat: stop.lat, 
-    lng: stop.lng 
+  const fallbackPolylinePath = sortedStops.map(stop => ({
+    lat: stop.lat,
+    lng: stop.lng
   }));
 
   const origin = stopPoints.find(stop => stop.type === 'ORIGIN');
@@ -1773,8 +1797,8 @@ const OfferRide2: React.FC = () => {
           <div>
             <h3 className="font-medium text-gray-800 text-sm">Full Car (Private Ride)</h3>
             <p className="text-xs text-gray-500">
-              {isFullCar 
-                ? 'Direct ride without stops • Higher fare' 
+              {isFullCar
+                ? 'Direct ride without stops • Higher fare'
                 : 'Shared ride with stops • Split fare'}
             </p>
           </div>
@@ -1852,19 +1876,17 @@ const OfferRide2: React.FC = () => {
               <div
                 key={route.id}
                 onClick={() => handleRouteSelect(route.id)}
-                className={`p-3 border rounded-lg cursor-pointer transition-all ${
-                  selectedRoute === route.id
+                className={`p-3 border rounded-lg cursor-pointer transition-all ${selectedRoute === route.id
                     ? 'border-[#21409A] bg-[#21409A]/5'
                     : 'border-gray-200 hover:border-[#21409A]/50 hover:bg-[#21409A]/2'
-                }`}
+                  }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {/* Route Selection Radio */}
                     <div
-                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        selectedRoute === route.id ? 'border-[#21409A]' : 'border-gray-300'
-                      }`}
+                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${selectedRoute === route.id ? 'border-[#21409A]' : 'border-gray-300'
+                        }`}
                     >
                       {selectedRoute === route.id && (
                         <div className="w-2 h-2 rounded-full bg-[#21409A]" />
@@ -1875,22 +1897,21 @@ const OfferRide2: React.FC = () => {
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-bold text-gray-800">{route.duration}</span>
-                        <span
-                          className={`px-1.5 py-0.5 text-xs font-medium rounded-full ${
-                            route.hasTolls
+                        {/* <span
+                          className={`px-1.5 py-0.5 text-xs font-medium rounded-full ${route.hasTolls
                               ? 'bg-orange-100 text-orange-700'
                               : 'bg-green-100 text-green-700'
-                          }`}
+                            }`}
                         >
                           {route.hasTolls ? 'With tolls' : 'No tolls'}
-                        </span>
+                        </span> */}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="text-xs text-gray-600">{route.distance}</span>
-                        <span className="text-xs text-gray-300">•</span>
-                        <span className="text-xs text-[#21409A] font-medium">
+                        {/* <span className="text-xs text-gray-300">•</span> */}
+                        {/* <span className="text-xs text-[#21409A] font-medium">
                           Route #{route.id}
-                        </span>
+                        </span> */}
                       </div>
                     </div>
                   </div>
@@ -1925,11 +1946,10 @@ const OfferRide2: React.FC = () => {
             }
           }}
           disabled={isLoading || routes.length === 0 || !selectedRoute || isRecalculating}
-          className={`w-full py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${
-            !isLoading && routes.length > 0 && selectedRoute && !isRecalculating
+          className={`w-full py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${!isLoading && routes.length > 0 && selectedRoute && !isRecalculating
               ? 'bg-[#21409A] text-white hover:bg-[#1a357c]'
               : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-          }`}
+            }`}
         >
           {isRecalculating ? (
             <>
@@ -1965,8 +1985,8 @@ const OfferRide2: React.FC = () => {
               {isFullCar ? 'Full Car Ride' : 'Add Stops'}
             </h1>
             <p className="text-xs text-gray-500">
-              {isFullCar 
-                ? 'Direct ride without intermediate stops' 
+              {isFullCar
+                ? 'Direct ride without intermediate stops'
                 : 'Add stops within 50km of the selected route'}
             </p>
           </div>
@@ -1984,7 +2004,7 @@ const OfferRide2: React.FC = () => {
             <div>
               <h3 className="font-medium text-gray-800 text-sm mb-0.5">Full Car Mode</h3>
               <p className="text-xs text-gray-600">
-                This is a private ride. No intermediate stops are allowed. 
+                This is a private ride. No intermediate stops are allowed.
                 The ride will go directly from pickup to destination with a single base fare.
               </p>
             </div>
@@ -1997,16 +2017,15 @@ const OfferRide2: React.FC = () => {
             <button
               onClick={handleOneClickAddStop}
               disabled={isRecalculating || isFullCar || polylinePath.length === 0}
-              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${
-                isFullCar || polylinePath.length === 0
-                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${isFullCar || polylinePath.length === 0
+                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                   : 'bg-green-600 text-white hover:bg-green-700'
-              } disabled:opacity-50`}
+                } disabled:opacity-50`}
             >
               <Plus size={12} />
               <span>Quick Add</span>
             </button>
-            
+
             <button
               onClick={() => {
                 if (isFullCar) {
@@ -2020,26 +2039,25 @@ const OfferRide2: React.FC = () => {
                   return;
                 }
                 if (polylinePath.length === 0) {
-                  setToast({ 
-                    message: 'Please select a route first', 
-                    type: 'error' 
+                  setToast({
+                    message: 'Please select a route first',
+                    type: 'error'
                   });
                   return;
                 }
                 setIsAddStopMode(true);
-                setToast({ 
-                  message: 'Click on map along the route line to add a stop (within 50km)', 
-                  type: 'info' 
+                setToast({
+                  message: 'Click on map along the route line to add a stop (within 50km)',
+                  type: 'info'
                 });
               }}
               disabled={isRecalculating || isAddStopMode || polylinePath.length === 0}
-              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${
-                isAddStopMode
+              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${isAddStopMode
                   ? 'bg-amber-500 text-white'
                   : polylinePath.length === 0
-                  ? 'bg-gray-200 text-gray-500'
-                  : 'bg-[#21409A] text-white hover:bg-[#1a357c]'
-              } disabled:opacity-50`}
+                    ? 'bg-gray-200 text-gray-500'
+                    : 'bg-[#21409A] text-white hover:bg-[#1a357c]'
+                } disabled:opacity-50`}
             >
               <Plus size={12} />
               <span>Add on Map</span>
@@ -2048,20 +2066,19 @@ const OfferRide2: React.FC = () => {
             <button
               onClick={() => {
                 if (polylinePath.length === 0) {
-                  setToast({ 
-                    message: 'Please select a route first', 
-                    type: 'error' 
+                  setToast({
+                    message: 'Please select a route first',
+                    type: 'error'
                   });
                   return;
                 }
                 setManualSearchModal({ isOpen: true });
               }}
               disabled={isRecalculating || isFullCar || polylinePath.length === 0}
-              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${
-                isFullCar || polylinePath.length === 0
-                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+              className={`flex-1 py-2 text-xs rounded-lg flex items-center justify-center gap-1 ${isFullCar || polylinePath.length === 0
+                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                   : 'bg-[#21409A] text-white hover:bg-[#1a357c]'
-              } disabled:opacity-50`}
+                } disabled:opacity-50`}
             >
               <Search size={12} />
               <span>Search Cities</span>
@@ -2078,7 +2095,7 @@ const OfferRide2: React.FC = () => {
               </button>
             </div>
           )}
-          
+
           {/* Route Info */}
           {polylinePath.length > 0 && (
             <div className="mb-2 flex-shrink-0 p-2 bg-blue-50 border border-blue-100 rounded-lg">
@@ -2101,25 +2118,23 @@ const OfferRide2: React.FC = () => {
               {isFullCar ? 'Route Points' : `All Stops (${stopPoints.length})`}
             </h3>
           </div>
-          
+
           <div className="space-y-1.5">
             {stopPoints
               .sort((a, b) => a.stopId - b.stopId)
               .map((stop) => (
                 <div
                   key={stop.stopId}
-                  className={`flex items-center justify-between p-1.5 rounded-lg ${
-                    stop.type === 'ORIGIN' ? 'bg-green-50' :
-                    stop.type === 'DESTINATION' ? 'bg-red-50' :
-                    'bg-blue-50'
-                  }`}
+                  className={`flex items-center justify-between p-1.5 rounded-lg ${stop.type === 'ORIGIN' ? 'bg-green-50' :
+                      stop.type === 'DESTINATION' ? 'bg-red-50' :
+                        'bg-blue-50'
+                    }`}
                 >
                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${
-                      stop.type === 'ORIGIN' ? 'bg-green-600 text-white' :
-                      stop.type === 'DESTINATION' ? 'bg-red-600 text-white' :
-                      'bg-[#21409A] text-white'
-                    }`}>
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${stop.type === 'ORIGIN' ? 'bg-blue-600 text-white' :
+                        stop.type === 'DESTINATION' ? 'bg-red-600 text-white' :
+                          'bg-[#21409A] text-white'
+                      }`}>
                       {stop.type === 'ORIGIN' && 'P'}
                       {stop.type === 'DESTINATION' && 'D'}
                       {stop.type === 'STOP' && stop.stopId - 1}
@@ -2165,11 +2180,10 @@ const OfferRide2: React.FC = () => {
         <button
           onClick={handleNext}
           disabled={isRecalculating}
-          className={`w-full py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${
-            !isRecalculating
+          className={`w-full py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 ${!isRecalculating
               ? 'bg-[#21409A] text-white hover:bg-[#1a357c]'
               : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-          }`}
+            }`}
         >
           {isRecalculating ? (
             <>
@@ -2200,16 +2214,18 @@ const OfferRide2: React.FC = () => {
 
   return (
     <div className="h-screen overflow-hidden bg-gray-50 flex flex-col">
-      <Navbar />
+      
+    <div className="m-5 px-8">
+    <button
+          onClick={() => navigate('/offer-ride1')}
+          className="flex items-center gap-1 text-muted-foreground hover:text-foreground mb-3 text-sm"
+        >
+          <ArrowLeft size={16} />
+          <span>Back</span>
+        </button>
+      </div> 
+     
 
-      {/* Back Button */}
-      <button
-        onClick={() => navigate(-1)}
-        className="fixed top-16 left-3 z-20 p-1.5 bg-white hover:bg-gray-100 rounded-full transition-colors border border-gray-300"
-        aria-label="Go back to previous page"
-      >
-        <ArrowLeft size={18} className="text-gray-800" />
-      </button>
 
       {/* Toast Notification */}
       {toast && (
@@ -2238,12 +2254,12 @@ const OfferRide2: React.FC = () => {
       <AddStopModal
         isOpen={addStopModal.isOpen}
         onClose={() => {
-          setAddStopModal({ 
-            isOpen: false, 
-            position: null, 
-            address: '', 
-            isValid: false, 
-            validationMessage: '' 
+          setAddStopModal({
+            isOpen: false,
+            position: null,
+            address: '',
+            isValid: false,
+            validationMessage: ''
           });
           setIsAddStopMode(false);
         }}
@@ -2258,11 +2274,11 @@ const OfferRide2: React.FC = () => {
       {/* Invalid Stop Modal */}
       <InvalidStopModal
         isOpen={invalidStopModal.isOpen}
-        onClose={() => setInvalidStopModal({ 
-          isOpen: false, 
-          position: null, 
-          errorMessage: '', 
-          distanceFromRoute: 0 
+        onClose={() => setInvalidStopModal({
+          isOpen: false,
+          position: null,
+          errorMessage: '',
+          distanceFromRoute: 0
         })}
         stopLocation={invalidStopModal.position || { lat: 0, lng: 0 }}
         polylinePoints={polylinePath}
@@ -2270,13 +2286,13 @@ const OfferRide2: React.FC = () => {
         distanceFromRoute={invalidStopModal.distanceFromRoute}
       />
 
-      <div className="flex-1 pt-14 overflow-hidden">
+      <div className="flex-1  overflow-hidden">
         {/* Responsive Layout */}
-        <div className={`h-full ${isMobile ? (mapExpanded ? 'hidden' : 'block') : 'max-w-6xl mx-auto px-3 py-3'}`}>
+        <div className={`h-full ${isMobile ? (mapExpanded ? 'hidden' : 'block') : 'max-w-7xl mx-auto '}`}>
           {/* Mobile - Full width panel when map is not expanded */}
           {isMobile ? (
             <div className="h-full bg-white">
-              <div className="p-3 h-full">
+              <div className="p-1 h-full">
                 {currentScreen === 'routes' ? renderRoutesScreen() : renderStopsScreen()}
               </div>
             </div>
@@ -2332,14 +2348,14 @@ const OfferRide2: React.FC = () => {
                               if (!e.latLng || isFullCar) return;
                               const lat = e.latLng.lat();
                               const lng = e.latLng.lng();
-                              
+
                               // Validate the new position is on the polyline route
                               const validation = validateStopOnPolylineRoute(
                                 { lat, lng },
                                 polylinePath,
                                 50
                               );
-                              
+
                               if (!validation.isValid) {
                                 setInvalidStopModal({
                                   isOpen: true,
@@ -2349,28 +2365,28 @@ const OfferRide2: React.FC = () => {
                                 });
                                 return;
                               }
-                              
+
                               // Get accurate name for new location
                               const accurateName = await getAccurateLocationName(lat, lng);
-                              
+
                               setStopPoints(prevStops => {
-                                const updatedStops = prevStops.map(s => 
-                                  s.stopId === stop.stopId 
-                                    ? { 
-                                        ...s, 
-                                        lat, 
-                                        lng,
-                                        name: accurateName.name,
-                                        address: accurateName.address
-                                      }
+                                const updatedStops = prevStops.map(s =>
+                                  s.stopId === stop.stopId
+                                    ? {
+                                      ...s,
+                                      lat,
+                                      lng,
+                                      name: accurateName.name,
+                                      address: accurateName.address
+                                    }
                                     : s
                                 );
                                 console.log('Stop dragged and updated:', updatedStops);
                                 return updatedStops;
                               });
-                              
+
                               setActiveStopIndex(null);
-                              
+
                               setIsRecalculating(true);
                               setTimeout(() => {
                                 setStopPoints(prev => {
@@ -2383,17 +2399,17 @@ const OfferRide2: React.FC = () => {
                             icon={{
                               path: google.maps.SymbolPath.CIRCLE,
                               fillColor: stop.type === 'ORIGIN' ? '#10B981' :
-                                        stop.type === 'DESTINATION' ? '#EF4444' :
-                                        activeStopIndex === stop.stopId ? '#8B5CF6' : '#21409A',
+                                stop.type === 'DESTINATION' ? '#EF4444' :
+                                  activeStopIndex === stop.stopId ? '#8B5CF6' : '#21409A',
                               fillOpacity: 1,
                               strokeColor: '#FFFFFF',
                               strokeWeight: 2,
                               scale: stop.type === 'STOP' ? 6 : 8
                             }}
                             label={{
-                              text: stop.type === 'ORIGIN' ? 'P' : 
-                                    stop.type === 'DESTINATION' ? 'D' : 
-                                    (stop.stopId - 1).toString(),
+                              text: stop.type === 'ORIGIN' ? 'P' :
+                                stop.type === 'DESTINATION' ? 'D' :
+                                  (stop.stopId - 1).toString(),
                               color: '#FFFFFF',
                               fontSize: stop.type === 'STOP' ? '9px' : '11px',
                               fontWeight: 'bold'
@@ -2420,18 +2436,22 @@ const OfferRide2: React.FC = () => {
                     <div className="flex items-center gap-1">
                       <Navigation size={12} className={isFullCar ? "text-purple-600" : "text-[#21409A]"} />
                       <span className="truncate text-xs">
-                        {origin?.name || 'Origin'} → 
+                        {origin?.name || 'Origin'} →
                         {destination?.name || 'Destination'}
-                      </span>
+                      </span>selectedRouteData.duration
                     </div>
                     <div className="text-xs text-gray-600 mt-0.5">
                       {isFullCar ? 'Full Car • No Stops' : `${stopPoints.filter(stop => stop.type === 'STOP').length} intermediate stops`}
                     </div>
                     {selectedRouteData && (
-                      <div className={`text-xs font-medium mt-0.5 ${isFullCar ? 'text-purple-600' : 'text-[#21409A]'}`}>
-                        {selectedRouteData.distance} • {selectedRouteData.duration}
+                      <div
+                        className={`text-xs font-medium mt-0.5 ${isFullCar ? 'text-purple-600' : 'text-[#21409A]'
+                          }`}
+                      >
+                        {selectedRouteData.distance} • {formatDurationHrMin(selectedRouteData.duration)}
                       </div>
                     )}
+
                     {!isFullCar && polylinePath.length > 0 && (
                       <div className="text-xs text-blue-600 font-medium mt-0.5">
                         ✓ Stops must be within 50km of route
@@ -2508,14 +2528,14 @@ const OfferRide2: React.FC = () => {
                           if (!e.latLng || isFullCar) return;
                           const lat = e.latLng.lat();
                           const lng = e.latLng.lng();
-                          
+
                           // Validate the new position is on the polyline route
                           const validation = validateStopOnPolylineRoute(
                             { lat, lng },
                             polylinePath,
                             50
                           );
-                          
+
                           if (!validation.isValid) {
                             setInvalidStopModal({
                               isOpen: true,
@@ -2525,28 +2545,28 @@ const OfferRide2: React.FC = () => {
                             });
                             return;
                           }
-                          
+
                           // Get accurate name for new location
                           const accurateName = await getAccurateLocationName(lat, lng);
-                          
+
                           setStopPoints(prevStops => {
-                            const updatedStops = prevStops.map(s => 
-                              s.stopId === stop.stopId 
-                                ? { 
-                                    ...s, 
-                                    lat, 
-                                    lng,
-                                    name: accurateName.name,
-                                    address: accurateName.address
-                                  }
+                            const updatedStops = prevStops.map(s =>
+                              s.stopId === stop.stopId
+                                ? {
+                                  ...s,
+                                  lat,
+                                  lng,
+                                  name: accurateName.name,
+                                  address: accurateName.address
+                                }
                                 : s
                             );
                             console.log('Mobile: Stop dragged and updated:', updatedStops);
                             return updatedStops;
                           });
-                          
+
                           setActiveStopIndex(null);
-                          
+
                           setIsRecalculating(true);
                           setTimeout(() => {
                             setStopPoints(prev => {
@@ -2559,17 +2579,17 @@ const OfferRide2: React.FC = () => {
                         icon={{
                           path: google.maps.SymbolPath.CIRCLE,
                           fillColor: stop.type === 'ORIGIN' ? '#10B981' :
-                                    stop.type === 'DESTINATION' ? '#EF4444' :
-                                    activeStopIndex === stop.stopId ? '#8B5CF6' : '#21409A',
+                            stop.type === 'DESTINATION' ? '#EF4444' :
+                              activeStopIndex === stop.stopId ? '#8B5CF6' : '#21409A',
                           fillOpacity: 1,
                           strokeColor: '#FFFFFF',
                           strokeWeight: 2,
                           scale: stop.type === 'STOP' ? 6 : 8
                         }}
                         label={{
-                          text: stop.type === 'ORIGIN' ? 'P' : 
-                                stop.type === 'DESTINATION' ? 'D' : 
-                                (stop.stopId - 1).toString(),
+                          text: stop.type === 'ORIGIN' ? 'P' :
+                            stop.type === 'DESTINATION' ? 'D' :
+                              (stop.stopId - 1).toString(),
                           color: '#FFFFFF',
                           fontSize: stop.type === 'STOP' ? '9px' : '11px',
                           fontWeight: 'bold'
@@ -2604,7 +2624,7 @@ const OfferRide2: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-xs truncate">
-                      {origin?.name} → 
+                      {origin?.name} →
                       {destination?.name}
                     </div>
                     <div className="text-xs text-gray-600 mt-0.5 flex items-center gap-1.5">

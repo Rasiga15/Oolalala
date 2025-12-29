@@ -131,6 +131,18 @@ export const Navbar: React.FC = () => {
               <span>My Offers</span>
             </button>
             
+            {/* MY BOOKING LINK - Desktop */}
+            <button 
+              onClick={() => {
+                closeAll();
+                navigate('/my-bookings');
+              }}
+              className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
+            >
+              <FiSearch size={20} />
+              <span>My Booking</span>
+            </button>
+            
             {/* WALLET LINK - Desktop */}
             <button 
               onClick={() => {
@@ -214,16 +226,10 @@ export const Navbar: React.FC = () => {
                           <span>Profile</span>
                         </button>
                         
-                        <button 
-                          onClick={handleNavigateToNotifications}
-                          className="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                        >
-                          <FiBell size={16} />
-                          <span>Notifications</span>
-                          {hasUnreadNotifications && (
-                            <span className="h-2 w-2 bg-red-500 rounded-full"></span>
-                          )}
-                        </button>
+                       
+                        
+                        {/* My Booking in dropdown */}
+                       
                         
                         <div className="border-t border-gray-100 my-1"></div>
                         <button 
@@ -325,6 +331,17 @@ export const Navbar: React.FC = () => {
               className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
             >
               <MdOutlineCommute size={22} /> My Offers
+            </button>
+            
+            {/* MY BOOKING LINK - Mobile */}
+            <button 
+              onClick={() => {
+                closeAll();
+                navigate('/my-bookings');
+              }}
+              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
+            >
+              <FiSearch size={20} /> My Booking
             </button>
             
             {/* WALLET LINK - Mobile */}

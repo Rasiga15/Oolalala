@@ -330,9 +330,8 @@ const OfferRide4: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navbar />
       
-      <div className="pt-16 px-3 max-w-5xl mx-auto">
+      <div className="pt-4 px-3 max-w-7xl mx-auto">
         <div className="relative flex items-center mb-4">
           <button
             onClick={handleBack}
@@ -347,61 +346,6 @@ const OfferRide4: React.FC = () => {
           </h1>
         </div>
 
-        {/* Ride Type Indicator */}
-        <div className={`mb-4 p-3 rounded-lg ${isFullCar ? 'bg-purple-50 border border-purple-200' : 'bg-blue-50 border border-blue-200'}`}>
-          <div className="flex items-center gap-2">
-            {isFullCar ? (
-              <>
-                <Navigation className="text-purple-600" size={16} />
-                <span className="text-purple-700 font-medium">Full Car (Private Ride)</span>
-                <span className="text-xs text-purple-600 ml-auto">No stops • Single fare</span>
-              </>
-            ) : (
-              <>
-                <Navigation className="text-blue-600" size={16} />
-                <span className="text-blue-700 font-medium">Shared Ride</span>
-                <span className="text-xs text-blue-600 ml-auto">{sortedStops.length - 2} stops • Split fare</span>
-              </>
-            )}
-          </div>
-          
-          {/* Main Fare Indicator for Shared Rides */}
-          {!isFullCar && origin && destination && (
-            <div className="mt-2 flex items-center gap-1 text-xs bg-green-50 border border-green-200 rounded px-2 py-1 text-green-800">
-              <Lock size={12} />
-              <span className="font-medium">Main Fare (Fixed):</span>
-              <span>{origin.name} to {destination.name} = ₹{mainFare.toLocaleString()}</span>
-              <button 
-                onClick={() => {
-                  const newFare = prompt(`Enter new main fare (₹):`, mainFare.toString());
-                  if (newFare && !isNaN(parseFloat(newFare))) {
-                    updateMainFare(parseFloat(newFare));
-                  }
-                }}
-                className="ml-2 text-[10px] bg-green-100 hover:bg-green-200 px-1.5 py-0.5 rounded"
-              >
-                Edit
-              </button>
-            </div>
-          )}
-          
-          {/* isNegotiable Status Display */}
-          <div className={`mt-2 inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${
-            rideData.isNegotiable ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800'
-          }`}>
-            {rideData.isNegotiable ? (
-              <>
-                <span>💰 Price Negotiable: ON</span>
-                <span className="text-[10px]">Passengers can negotiate fare</span>
-              </>
-            ) : (
-              <>
-                <span>💰 Price Negotiable: OFF</span>
-                <span className="text-[10px]">Fixed fare, no negotiation</span>
-              </>
-            )}
-          </div>
-        </div>
 
         {submitSuccess && (
           <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">
@@ -442,7 +386,7 @@ const OfferRide4: React.FC = () => {
                 <React.Fragment key={stop.stopId}>
                   <div className="flex items-center mb-2">
                     <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 text-white text-xs font-bold ${
-                      stop.type === 'ORIGIN' ? 'bg-green-500' :
+                      stop.type === 'ORIGIN' ? 'bg-blue-500' :
                       stop.type === 'DESTINATION' ? 'bg-red-500' : 'bg-blue-500'
                     }`}>
                       {stop.type === 'ORIGIN' ? 'P' : stop.type === 'DESTINATION' ? 'D' : index}
@@ -652,7 +596,7 @@ const OfferRide4: React.FC = () => {
                   <div key={stop.stopId}>
                     <div className="flex items-center p-2 bg-gray-50 rounded border border-gray-200">
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 text-white text-xs font-bold ${
-                        stop.type === 'ORIGIN' ? 'bg-green-500' :
+                        stop.type === 'ORIGIN' ? 'bg-blue-500' :
                         stop.type === 'DESTINATION' ? 'bg-red-500' : 'bg-blue-500'
                       }`}>
                         {stop.type === 'ORIGIN' ? 'P' : stop.type === 'DESTINATION' ? 'D' : index}

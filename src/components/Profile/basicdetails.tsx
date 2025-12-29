@@ -12,18 +12,18 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useProfile } from "../../pages/Profile";
 
 // Your custom Label component
-const Label = ({ 
-  htmlFor, 
-  className = "", 
-  children 
-}: { 
-  htmlFor?: string; 
-  className?: string; 
-  children: React.ReactNode 
+const Label = ({
+  htmlFor,
+  className = "",
+  children
+}: {
+  htmlFor?: string;
+  className?: string;
+  children: React.ReactNode
 }) => {
   return (
-    <label 
-      htmlFor={htmlFor} 
+    <label
+      htmlFor={htmlFor}
       className={`text-sm font-medium text-gray-800 ${className}`}
     >
       {children}
@@ -50,14 +50,12 @@ const Switch = ({
         disabled={false}
       >
         <div
-          className={`relative w-14 h-7 rounded-full transition-colors duration-300 ${
-            checked ? "bg-primary" : "bg-gray-300"
-          }`}
+          className={`relative w-14 h-7 rounded-full transition-colors duration-300 ${checked ? "bg-primary" : "bg-gray-300"
+            }`}
         >
           <div
-            className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-300 ${
-              checked ? "translate-x-8" : "translate-x-1"
-            }`}
+            className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-300 ${checked ? "translate-x-8" : "translate-x-1"
+              }`}
           />
         </div>
       </button>
@@ -156,29 +154,29 @@ const BasicDetails = () => {
   // Function to format date for display
   const formatDateForDisplay = (dateString: string): string => {
     if (!dateString) return '';
-    
+
     const date = new Date(dateString);
     const day = date.getDate().toString().padStart(2, '0');
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const year = date.getFullYear();
-    
+
     return `${day}/${month}/${year}`;
   };
 
   // Function to calculate age
   const calculateAge = (birthDate: string): number => {
     if (!birthDate) return 0;
-    
+
     const birth = new Date(birthDate);
     const today = new Date();
-    
+
     let age = today.getFullYear() - birth.getFullYear();
     const monthDiff = today.getMonth() - birth.getMonth();
-    
+
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
       age--;
     }
-    
+
     return age;
   };
 
@@ -189,8 +187,8 @@ const BasicDetails = () => {
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.value;
-    
-    // Check if selected date is valid (at least 18 years old)
+    if (!selected) return;
+
     const selectedDateObj = new Date(selected);
     const now = new Date();
     const eighteenYearsAgo = new Date(
@@ -198,19 +196,13 @@ const BasicDetails = () => {
       now.getMonth(),
       now.getDate()
     );
-    
+
     if (selectedDateObj > eighteenYearsAgo) {
       toast.error('Must be at least 18 years old');
       return;
     }
-    
+
     setFormData({ ...formData, dateOfBirth: selected });
-    
-    // Format date for display
-    const formattedDate = selected; // Already in yyyy-MM-dd format
-    toast.success(`Date of birth set to: ${formatDateForDisplay(formattedDate)}`);
-    
-    setShowDatePickerModal(false);
   };
 
   // Fetch profile data on component mount - Use central data first
@@ -231,9 +223,9 @@ const BasicDetails = () => {
     try {
       setFetching(true);
       console.log("Fetching profile data...");
-      
+
       let profileData: BasicProfileData | null = null;
-      
+
       // First try to use central profile data
       if (centralProfileData) {
         console.log("Using central profile data:", centralProfileData);
@@ -246,7 +238,7 @@ const BasicDetails = () => {
           console.log("Profile data loaded from API:", result.data);
         }
       }
-      
+
       if (profileData) {
         // Set form data from profile data
         setFormData({
@@ -261,7 +253,7 @@ const BasicDetails = () => {
           professionalType: profileData.professionalType || "",
           multiVehicle: profileData.multiVehicle || false,
         });
-        
+
         // Load profile image if exists
         if (profileData.profileImage) {
           let imageUrl = profileData.profileImage;
@@ -273,12 +265,12 @@ const BasicDetails = () => {
         } else {
           setIsProfileImageUploaded(false);
         }
-        
+
         toast.success("Profile loaded successfully");
       } else {
         console.error("Failed to load profile");
         toast.error("Failed to load profile data");
-        
+
         // If user data exists in auth context, use it as fallback
         if (user) {
           setFormData({
@@ -293,7 +285,7 @@ const BasicDetails = () => {
             professionalType: "",
             multiVehicle: false,
           });
-          
+
           if (user.profile_image) {
             setProfileImage(user.profile_image);
             setIsProfileImageUploaded(true);
@@ -329,10 +321,10 @@ const BasicDetails = () => {
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        
+
         const MAX_WIDTH = 800;
         const MAX_HEIGHT = 800;
-        
+
         if (width > height) {
           if (width > MAX_WIDTH) {
             height = Math.round(height * MAX_WIDTH / width);
@@ -344,22 +336,22 @@ const BasicDetails = () => {
             height = MAX_HEIGHT;
           }
         }
-        
+
         canvas.width = width;
         canvas.height = height;
-        
+
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
-          
+
           let quality = 0.8 - (attempt * 0.2);
           if (quality < 0.4) quality = 0.4;
-          
+
           canvas.toBlob(
             (compressedBlob) => {
               if (compressedBlob) {
                 console.log(`Compression attempt ${attempt}:`, (compressedBlob.size / 1024 / 1024).toFixed(2), 'MB');
-                
+
                 if (compressedBlob.size > 2 * 1024 * 1024 && attempt < maxAttempts) {
                   resolve(compressImageToUnder2MB(compressedBlob, maxAttempts, attempt + 1));
                 } else {
@@ -376,12 +368,12 @@ const BasicDetails = () => {
           resolve(blob);
         }
       };
-      
+
       img.onerror = () => {
         console.error('Error loading image for compression');
         resolve(blob);
       };
-      
+
       img.src = URL.createObjectURL(blob);
     });
   };
@@ -396,34 +388,34 @@ const BasicDetails = () => {
     try {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      
+
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
+
         canvas.toBlob(async (blob) => {
           if (blob) {
             try {
               setImageUploading(true);
               const compressedBlob = await compressImageToUnder2MB(blob);
-              
-              const file = new File([compressedBlob], `profile-photo-${Date.now()}.jpg`, { 
+
+              const file = new File([compressedBlob], `profile-photo-${Date.now()}.jpg`, {
                 type: 'image/jpeg',
                 lastModified: Date.now()
               });
-              
+
               console.log('Captured image size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
-              
+
               if (file.size > 2 * 1024 * 1024) {
                 toast.error('Image is still too large. Please try again with better lighting.');
                 stopCameraStream();
                 setImageUploading(false);
                 return;
               }
-              
+
               stopCameraStream();
               await uploadProfileImage(file);
             } catch (error) {
@@ -452,28 +444,28 @@ const BasicDetails = () => {
     try {
       setLoading(true);
       setImageUploading(true);
-      
+
       const validImageTypes = ['image/jpeg', 'image/jpg'];
       if (!validImageTypes.includes(file.type)) {
         toast.error('Only JPEG images are allowed');
         setImageUploading(false);
         return;
       }
-      
+
       if (file.size > 2 * 1024 * 1024) {
         toast.error('Image size should be less than 2MB');
         setImageUploading(false);
         return;
       }
-      
+
       toast.info('Uploading profile picture...');
-      
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setProfileImage(reader.result as string);
       };
       reader.readAsDataURL(file);
-      
+
       const uploadFormData = new FormData();
       uploadFormData.append('profile_image', file);
       uploadFormData.append('firstName', formData.firstName || '');
@@ -481,33 +473,33 @@ const BasicDetails = () => {
       uploadFormData.append('dateOfBirth', formData.dateOfBirth || '');
       uploadFormData.append('gender', formData.gender);
       uploadFormData.append('multiVehicle', formData.multiVehicle.toString());
-      
+
       if (formData.location) {
         uploadFormData.append('location', formData.location);
       }
-      
+
       if (formData.publishRide !== undefined) {
         uploadFormData.append('publishRide', formData.publishRide.toString());
       }
-      
+
       if (formData.partnerType) {
         uploadFormData.append('partnerType', formData.partnerType);
       }
-      
+
       if (formData.businessName) {
         uploadFormData.append('businessName', formData.businessName);
       }
-      
+
       if (formData.professionalType) {
         uploadFormData.append('professionalType', formData.professionalType);
       }
-      
+
       const result = await ProfileApiService.updateBasicProfile(uploadFormData);
-      
+
       if (result.success) {
         setIsProfileImageUploaded(true);
         toast.success('Profile picture updated successfully!');
-        
+
         const userUpdateData: any = {
           first_name: formData.firstName,
           last_name: formData.lastName,
@@ -515,7 +507,7 @@ const BasicDetails = () => {
           date_of_birth: formData.dateOfBirth,
           profile_image: reader.result as string,
         };
-        
+
         updateUser(userUpdateData);
         // Refresh central profile data if available
         if (refreshProfile) {
@@ -536,29 +528,29 @@ const BasicDetails = () => {
   // Handle camera click
   const handleCameraClick = async () => {
     if (loading || cameraAccessing || imageUploading) return;
-    
+
     try {
       setCameraAccessing(true);
-      
+
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         toast.error('Camera not supported on this device/browser');
         setCameraAccessing(false);
         return;
       }
-      
+
       try {
-        const testStream = await navigator.mediaDevices.getUserMedia({ 
-          video: true 
+        const testStream = await navigator.mediaDevices.getUserMedia({
+          video: true
         }).catch(err => {
           console.error('Initial camera test failed:', err);
           throw err;
         });
-        
+
         testStream.getTracks().forEach(track => track.stop());
-        
+
       } catch (permissionError: any) {
         console.error('Camera permission error:', permissionError);
-        
+
         if (permissionError.name === 'NotAllowedError' || permissionError.name === 'PermissionDeniedError') {
           toast.error('Camera permission denied. Please allow camera access in browser settings.');
         } else if (permissionError.name === 'NotFoundError' || permissionError.name === 'DevicesNotFoundError') {
@@ -566,13 +558,13 @@ const BasicDetails = () => {
         } else {
           toast.error('Unable to access camera. Please check browser permissions.');
         }
-        
+
         setCameraAccessing(false);
         return;
       }
-      
+
       await startCameraPreview();
-      
+
     } catch (error: any) {
       console.error('Error accessing camera:', error);
       toast.error('Unable to access camera. Please try again.');
@@ -584,23 +576,23 @@ const BasicDetails = () => {
   const startCameraPreview = async () => {
     try {
       toast.info('Starting camera...');
-      
+
       if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
       }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
           width: { ideal: 640 },
           height: { ideal: 480 }
         },
-        audio: false 
+        audio: false
       });
-      
+
       setCameraStream(stream);
       setShowCameraPreview(true);
-      
+
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -611,10 +603,10 @@ const BasicDetails = () => {
           });
         }
       }, 100);
-      
+
     } catch (error: any) {
       console.error('Camera error:', error);
-      
+
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
         toast.error('Camera permission denied. Please allow camera access in browser settings.');
       } else if (error.name === 'NotFoundError') {
@@ -622,7 +614,7 @@ const BasicDetails = () => {
       } else {
         toast.error('Failed to access camera. Please try again.');
       }
-      
+
       stopCameraStream();
     } finally {
       setCameraAccessing(false);
@@ -668,7 +660,7 @@ const BasicDetails = () => {
     try {
       setLoading(true);
       console.log("Saving profile data:", formData);
-      
+
       const formDataObj = ProfileApiService.createProfileFormData({
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -681,25 +673,25 @@ const BasicDetails = () => {
         location: formData.location,
         professionalType: formData.professionalType,
       });
-      
+
       const result = await ProfileApiService.updateBasicProfile(formDataObj);
-      
+
       if (result.success) {
         toast.success(result.message || "Your details have been saved successfully!");
-        
+
         const userUpdateData: any = {
           first_name: formData.firstName,
           last_name: formData.lastName,
           gender: formData.gender,
           date_of_birth: formData.dateOfBirth,
         };
-        
+
         updateUser(userUpdateData);
         // Refresh central profile data if available
         if (refreshProfile) {
           await refreshProfile();
         }
-        
+
         // AUTO-NAVIGATE TO ID PROOF AFTER SUCCESSFUL SAVE
         setTimeout(() => {
           navigate('/id-proof');
@@ -725,7 +717,7 @@ const BasicDetails = () => {
       professionalType: "",
       multiVehicle: checked ? formData.multiVehicle : false,
     };
-    
+
     setFormData(newFormData);
   };
 
@@ -762,9 +754,9 @@ const BasicDetails = () => {
 
   return (
     <div className="min-h-screen bg-gray- 50 px-4 py-4">
-    
 
-     
+
+
       {/* Form Card */}
       <div className="px-4 md:px-8 lg:px-16">
         <div className="bg-white rounded-xl shadow-sm p-6 md:p-8 max-w-3xl mx-auto">
@@ -812,7 +804,7 @@ const BasicDetails = () => {
                   <FiCamera size={20} />
                 )}
               </button>
-              
+
               {/* Profile Image Required Indicator */}
               {!isProfileImageUploaded && (
                 <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
@@ -905,11 +897,10 @@ const BasicDetails = () => {
                       key={option}
                       type="button"
                       onClick={() => setFormData({ ...formData, gender: option as "male" | "female" | "others" })}
-                      className={`px-6 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                        formData.gender === option
+                      className={`px-6 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${formData.gender === option
                           ? "bg-primary text-white hover:bg-primary/90"
                           : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                      }`}
+                        }`}
                       disabled={loading || imageUploading}
                     >
                       {option.charAt(0).toUpperCase() + option.slice(1)}
@@ -929,7 +920,7 @@ const BasicDetails = () => {
                   label={formData.publishRide ? "Yes" : "No"}
                 />
                 <p className="text-xs text-gray-500">
-                  {formData.publishRide 
+                  {formData.publishRide
                     ? "You want to publish rides as a partner"
                     : "You don't want to publish rides"}
                 </p>
@@ -944,11 +935,10 @@ const BasicDetails = () => {
                       <button
                         type="button"
                         onClick={() => handlePartnerTypeChange("individual")}
-                        className={`px-6 py-3 rounded-lg flex-1 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                          formData.partnerType === "individual"
+                        className={`px-6 py-3 rounded-lg flex-1 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${formData.partnerType === "individual"
                             ? "bg-primary text-white hover:bg-primary/90"
                             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
+                          }`}
                         disabled={loading || imageUploading}
                       >
                         Individual
@@ -956,11 +946,10 @@ const BasicDetails = () => {
                       <button
                         type="button"
                         onClick={() => handlePartnerTypeChange("commercial")}
-                        className={`px-6 py-3 rounded-lg flex-1 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                          formData.partnerType === "commercial"
+                        className={`px-6 py-3 rounded-lg flex-1 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${formData.partnerType === "commercial"
                             ? "bg-primary text-white hover:bg-primary/90"
                             : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
+                          }`}
                         disabled={loading || imageUploading}
                       >
                         Commercial
@@ -982,8 +971,8 @@ const BasicDetails = () => {
                           Do you have multiple vehicles?
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          {formData.multiVehicle 
-                            ? "You can manage multiple vehicles" 
+                          {formData.multiVehicle
+                            ? "You can manage multiple vehicles"
                             : "You have single vehicle access"}
                         </p>
                       </div>
@@ -1057,7 +1046,7 @@ const BasicDetails = () => {
               )}
             </Button>
           </div>
-          
+
           {/* Save Button Warning */}
           {!isProfileImageUploaded && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -1078,7 +1067,7 @@ const BasicDetails = () => {
               <p className="text-sm text-gray-600 mb-4">
                 You must be at least 18 years old
               </p>
-              
+
               <div className="mb-6">
                 <input
                   type="date"
@@ -1090,7 +1079,7 @@ const BasicDetails = () => {
                   autoFocus
                   disabled={loading || imageUploading}
                 />
-                
+
                 {formData.dateOfBirth && (
                   <div className="mt-3 text-center">
                     <p className="text-sm text-gray-700">
@@ -1126,6 +1115,7 @@ const BasicDetails = () => {
                       toast.error("Please select a date");
                     }
                   }}
+
                   className="flex-1 px-4 py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors"
                   disabled={loading || imageUploading}
                 >
@@ -1149,7 +1139,7 @@ const BasicDetails = () => {
               <FiChevronLeft size={24} />
             </button>
           </div>
-          
+
           <div className="relative w-full max-w-lg aspect-square overflow-hidden rounded-lg">
             <video
               ref={videoRef}
@@ -1159,17 +1149,17 @@ const BasicDetails = () => {
               muted
             />
             <canvas ref={canvasRef} className="hidden" />
-            
+
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="w-48 h-48 border-2 border-white rounded-full opacity-50"></div>
             </div>
-            
+
             <div className="absolute top-4 right-4 left-4 text-center">
               <p className="text-white text-sm bg-black/50 backdrop-blur-sm rounded-full px-4 py-2 inline-block">
                 Position your face inside the circle
               </p>
             </div>
-            
+
             <div className="absolute bottom-8 left-0 right-0 flex justify-center">
               <button
                 onClick={handleCameraCapture}
@@ -1180,7 +1170,7 @@ const BasicDetails = () => {
               </button>
             </div>
           </div>
-          
+
           <p className="text-white mt-6 text-center max-w-md">
             Make sure your face is clearly visible and well-lit
           </p>

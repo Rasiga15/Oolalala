@@ -32,6 +32,8 @@ import AddPaymentMethod from "./components/wallet/addpaymentmethod";
 import DriverManagementMainScreen from "./components/Profile/DriverManagementMainScreen";
 import { MyRidesPanel } from "./pages/Myridepanel";
 import NotificationsPage from "./components/Notification/NotificationPage";
+import RideRequestDetail from "./components/Notification/RideRequestDetail";
+import MyBookings from "./pages/MyBooking";
 
 const queryClient = new QueryClient();
 
@@ -104,11 +106,19 @@ const AppRoutes = () => {
           </AppLayout>
         </ProtectedRoute>
       } />
+       <Route path="/riderequestdetails" element={
+        <ProtectedRoute>
+          <AppLayout>
+            <RideRequestDetail />
+          </AppLayout>
+        </ProtectedRoute>
+      } />
       
       {/* Protected Routes - Main App */}
       <Route path="/" element={<ProtectedRoute><AppLayout><Index /></AppLayout></ProtectedRoute>} />
       <Route path="/find-ride" element={<ProtectedRoute><AppLayout><FindRide /></AppLayout></ProtectedRoute>} />
       <Route path="/my-rides" element={<ProtectedRoute><AppLayout><MyRidesPanel /></AppLayout></ProtectedRoute>} />
+            <Route path="/my-bookings" element={<ProtectedRoute><AppLayout><MyBookings /></AppLayout></ProtectedRoute>} />
       <Route path="/offer-ride1" element={<ProtectedRoute><AppLayout><OfferRide1 /></AppLayout></ProtectedRoute>} />
       <Route path="/offer-ride2" element={<ProtectedRoute><AppLayout><OfferRide2 /></AppLayout></ProtectedRoute>} />
       <Route path="/offer-ride3" element={<ProtectedRoute><AppLayout><OfferRide3 /></AppLayout></ProtectedRoute>} />
