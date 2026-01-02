@@ -1,5 +1,5 @@
 
-const BASE_URL = 'https://api-dev.oolalala.com/api';
+import { BASE_URL } from '../config/api';
 
 export interface Stop {
   stop_name: string;
@@ -244,7 +244,7 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
     
     console.log('Processed payload for API:', JSON.stringify(processedPayload, null, 2));
     
-    const response = await apiRequest('/rides/offer', 'POST', processedPayload, true);
+    const response = await apiRequest('/api/rides/offer', 'POST', processedPayload, true);
     
     return response;
   } catch (error: any) {
@@ -300,7 +300,7 @@ export const fetchVerifiedVehicles = async (): Promise<Vehicle[]> => {
     
     let response;
     try {
-      response = await apiRequest('/profile/vehicles', 'GET', undefined, true);
+      response = await apiRequest('/api/profile/vehicles', 'GET', undefined, true);
     } catch (error: any) {
       if (error.message.includes('404') || error.message.includes('not found')) {
         console.log('Profile endpoint failed, trying regular vehicles endpoint...');
@@ -349,7 +349,7 @@ export const fetchAllVehicles = async (): Promise<Vehicle[]> => {
     
     let response;
     try {
-      response = await apiRequest('/profile/vehicles', 'GET', undefined, true);
+      response = await apiRequest('/api/profile/vehicles', 'GET', undefined, true);
     } catch (error: any) {
       if (error.message.includes('404') || error.message.includes('not found')) {
         console.log('Profile endpoint failed, trying regular vehicles endpoint...');
@@ -382,7 +382,7 @@ export const fetchAllVehicles = async (): Promise<Vehicle[]> => {
 
 export const fetchVehicleById = async (vehicleId: number): Promise<Vehicle | null> => {
   try {
-    const response = await apiRequest(`/profile/vehicles/${vehicleId}`, 'GET', undefined, true);
+    const response = await apiRequest(`/api/profile/vehicles/${vehicleId}`, 'GET', undefined, true);
     return response;
   } catch (error) {
     console.error('Error fetching vehicle by ID:', error);
@@ -391,7 +391,7 @@ export const fetchVehicleById = async (vehicleId: number): Promise<Vehicle | nul
 };
 
 export const addVehicle = async (vehicleData: Partial<Vehicle>): Promise<Vehicle> => {
-  return await apiRequest('/profile/vehicles', 'POST', vehicleData, true);
+  return await apiRequest('/api/profile/vehicles', 'POST', vehicleData, true);
 };
 
 export const verifyToken = async (): Promise<boolean> => {

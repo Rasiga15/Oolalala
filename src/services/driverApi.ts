@@ -1,5 +1,5 @@
 // src/services/driversApi.ts
-const BASE_URL = 'https://api-dev.oolalala.com/api';
+import { BASE_URL } from '../config/api';
 
 export interface Driver {
   id: number;
@@ -75,7 +75,7 @@ export const getVerifiedDrivers = async (): Promise<Driver[]> => {
     console.log('Getting drivers with token:', token.substring(0, 20) + '...');
 
     const response = await fetch(
-      `${BASE_URL}/profile/drivers`,
+      `${BASE_URL}/api/profile/drivers`,
       {
         method: 'GET',
         headers: {
@@ -123,7 +123,7 @@ export const getAllDrivers = async (): Promise<Driver[]> => {
     }
 
     const response = await fetch(
-      `${BASE_URL}/profile/drivers`,
+      `${BASE_URL}/api/profile/drivers`,
       {
         method: 'GET',
         headers: {

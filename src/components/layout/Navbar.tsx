@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FiSearch, FiUser, FiMenu, FiX, FiLogOut, FiBell } from 'react-icons/fi';
 import { MdDirectionsCar, MdOutlineCommute } from 'react-icons/md';
 import { FaWallet } from 'react-icons/fa';
@@ -6,14 +6,133 @@ import rectangleLogo from '../../assets/Rectangle.svg';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { BASE_URL } from '@/config/api';
+import axios from 'axios';
+
+// API functions for notifications
+const getAuthToken = (): string => {
+  const token = localStorage.getItem('authToken') || 
+                localStorage.getItem('accessToken') || 
+                sessionStorage.getItem('authToken') || 
+                sessionStorage.getItem('accessToken') || 
+                '';
+  
+  if (!token) {
+    console.warn('Authentication token not found');
+    throw new Error('Authentication token not found. Please login again.');
+  }
+  return token;
+};
+
+// Get unread notifications count
+const getUnreadNotificationsCount = async (): Promise<number> => {
+  try {
+    const token = getAuthToken();
+    
+    const response = await axios.get(
+      `${BASE_URL}/api/notifications/unread-count`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    console.log('Unread notifications count:', response.data);
+    return response.data.unreadCount || 0;
+  } catch (error: any) {
+    console.error('Get Unread Notifications Error:', error);
+    
+    if (error.response) {
+      if (error.response.status === 401) {
+        // Token expired or invalid
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('accessToken');
+        sessionStorage.removeItem('authToken');
+        sessionStorage.removeItem('accessToken');
+        throw new Error('Session expired. Please login again.');
+      }
+      const errorMessage = error.response.data?.error || 
+                          error.response.data?.message || 
+                          `Server error: ${error.response.status}`;
+      console.warn('Failed to fetch unread count:', errorMessage);
+      return 0;
+    } else if (error.request) {
+      console.warn('Network error while fetching unread count');
+      return 0;
+    } else {
+      console.warn('Error:', error.message);
+      return 0;
+    }
+  }
+};
 
 export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true); // For demo
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuth();
+
+  // Fetch unread notifications count
+  const fetchUnreadCount = async () => {
+    if (!isAuthenticated) {
+      setUnreadCount(0);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const count = await getUnreadNotificationsCount();
+      setUnreadCount(count);
+    } catch (error: any) {
+      console.error('Error fetching unread count:', error.message);
+      setUnreadCount(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial fetch and setup polling
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Initial fetch
+      fetchUnreadCount();
+
+      // Setup polling every 30 seconds
+      const interval = setInterval(() => {
+        fetchUnreadCount();
+      }, 30000); // 30 seconds
+
+      setPollingInterval(interval);
+
+      // Cleanup interval on unmount
+      return () => {
+        if (interval) {
+          clearInterval(interval);
+        }
+      };
+    } else {
+      setUnreadCount(0);
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        setPollingInterval(null);
+      }
+    }
+  }, [isAuthenticated]);
+
+  // Also fetch when user changes
+  useEffect(() => {
+    if (user && isAuthenticated) {
+      fetchUnreadCount();
+    }
+  }, [user]);
 
   const handleLogout = () => {
     logout();
@@ -88,6 +207,17 @@ export const Navbar: React.FC = () => {
     return 'User';
   };
 
+  // Handle search ride button click - NEW FUNCTION
+  const handleSearchRideClick = () => {
+    closeAll();
+    // Navigate to home page with scroll to search form
+    navigate('/', { 
+      state: { 
+        scrollToSearchForm: true 
+      } 
+    });
+  };
+
   const profileImageUrl = getProfileImageUrl();
 
   return (
@@ -108,7 +238,16 @@ export const Navbar: React.FC = () => {
           </div>
 
           {/* CENTER - NAV LINKS */}
-          <div className="hidden md:flex items-center gap-12">
+          <div className="hidden md:flex items-center gap-8">
+            {/* SEARCH RIDE BUTTON - Added to Navbar */}
+            <button 
+              onClick={handleSearchRideClick}
+              className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
+            >
+              <FiSearch size={20} />
+              <span>Search Ride</span>
+            </button>
+
             <button 
               onClick={() => {
                 closeAll();
@@ -165,11 +304,14 @@ export const Navbar: React.FC = () => {
                   <button 
                     onClick={handleNavigateToNotifications}
                     className="p-2 text-gray-600 hover:text-[#21409A] relative"
+                    disabled={loading}
                   >
                     <FiBell size={22} />
-                    {/* Notification badge */}
-                    {hasUnreadNotifications && (
-                      <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
+                    {/* Notification badge - only show if unreadCount > 0 */}
+                    {unreadCount > 0 && (
+                      <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] bg-red-500 text-white text-xs font-bold rounded-full px-1">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
                     )}
                   </button>
                 </div>
@@ -226,10 +368,19 @@ export const Navbar: React.FC = () => {
                           <span>Profile</span>
                         </button>
                         
-                       
-                        
-                        {/* My Booking in dropdown */}
-                       
+                        {/* Notification item in dropdown */}
+                        <button 
+                          onClick={handleNavigateToNotifications}
+                          className="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100 flex items-center gap-2 relative"
+                        >
+                          <FiBell size={16} />
+                          <span>Notifications</span>
+                          {unreadCount > 0 && (
+                            <span className="absolute right-3 flex items-center justify-center min-w-[18px] h-[18px] bg-red-500 text-white text-xs font-bold rounded-full px-1">
+                              {unreadCount > 99 ? '99+' : unreadCount}
+                            </span>
+                          )}
+                        </button>
                         
                         <div className="border-t border-gray-100 my-1"></div>
                         <button 
@@ -257,15 +408,18 @@ export const Navbar: React.FC = () => {
               </>
             )}
             
-            {/* MOBILE MENU BUTTON */}
+            {/* MOBILE MENU BUTTON with notification badge */}
             <button
               className="md:hidden p-2 text-gray-700 hover:text-[#21409A] relative"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              disabled={loading}
             >
               {mobileMenuOpen ? <FiX size={26} /> : <FiMenu size={26} />}
-              {/* Notification badge for mobile */}
-              {hasUnreadNotifications && (
-                <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
+              {/* Notification badge for mobile - only show if unreadCount > 0 */}
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] bg-red-500 text-white text-xs font-bold rounded-full px-1">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
               )}
             </button>
           </div>
@@ -313,6 +467,14 @@ export const Navbar: React.FC = () => {
               </div>
             )}
             
+            {/* SEARCH RIDE BUTTON - Mobile */}
+            <button 
+              onClick={handleSearchRideClick}
+              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
+            >
+              <FiSearch size={20} /> Search Ride
+            </button>
+            
             <button 
               onClick={() => {
                 closeAll();
@@ -355,14 +517,16 @@ export const Navbar: React.FC = () => {
               <FaWallet size={20} /> Wallet
             </button>
             
-            {/* NOTIFICATIONS - Mobile */}
+            {/* NOTIFICATIONS - Mobile with badge */}
             <button 
               onClick={handleNavigateToNotifications}
               className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2 relative"
             >
               <FiBell size={20} /> Notifications
-              {hasUnreadNotifications && (
-                <span className="h-2 w-2 bg-red-500 rounded-full absolute left-8 top-1/2 transform -translate-y-1/2"></span>
+              {unreadCount > 0 && (
+                <span className="absolute left-32 flex items-center justify-center min-w-[18px] h-[18px] bg-red-500 text-white text-xs font-bold rounded-full px-1">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
               )}
             </button>
             

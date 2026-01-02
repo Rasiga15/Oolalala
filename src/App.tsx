@@ -34,6 +34,7 @@ import { MyRidesPanel } from "./pages/Myridepanel";
 import NotificationsPage from "./components/Notification/NotificationPage";
 import RideRequestDetail from "./components/Notification/RideRequestDetail";
 import MyBookings from "./pages/MyBooking";
+import MyRideBookingView from "./components/Myride/myridebookingview";
 
 const queryClient = new QueryClient();
 
@@ -133,6 +134,7 @@ const AppRoutes = () => {
       <Route path="/vehicle-management" element={<ProtectedRoute><AppLayout><VehicleManagement /></AppLayout></ProtectedRoute>} />
       <Route path="/driver-management" element={<ProtectedRoute><AppLayout><DriverManagement /></AppLayout></ProtectedRoute>} />
       <Route path="/drivers" element={<ProtectedRoute><AppLayout><DriverManagementMainScreen /></AppLayout></ProtectedRoute>} />
+      <Route path="/my-rides-booking-view" element={<ProtectedRoute><AppLayout><MyRideBookingView /></AppLayout></ProtectedRoute>} />
       
       {/* Redirect root to welcome */}
       <Route path="/" element={<Navigate to="/welcome" replace />} />

@@ -213,6 +213,19 @@ const RideRequestDetail: React.FC = () => {
     }
   };
 
+  // Handle Pay Now action
+  const handlePayNow = () => {
+    // Add your payment logic here
+    toast({
+      title: "Payment Initiated",
+      description: "Redirecting to payment gateway...",
+    });
+    
+    // You can add your payment processing logic here
+    // For example: navigate to payment page
+    console.log('Payment initiated for booking:', bookingData.booking_id);
+  };
+
   // Toggle negotiate form
   const toggleNegotiateForm = () => {
     setShowNegotiateForm(!showNegotiateForm);
@@ -286,6 +299,11 @@ const RideRequestDetail: React.FC = () => {
   const isMyTurn = bookingData.is_my_turn || false;
   const userRole = bookingData.your_current_role || 'partner';
 
+  // Check if Pay Now button should be shown
+  const showPayNowButton = 
+    bookingData.booking_status === 'payment_pending' && 
+    bookingData.your_current_role === 'rider';
+
   // Prepare passengers array
   const passengers = bookingData.rider_details ? [{
     id: '1',
@@ -333,9 +351,9 @@ const RideRequestDetail: React.FC = () => {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto ">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
         {/* Turn Indicator */}
-       
+        
 
         <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
           {/* Left Column - 55% width */}
@@ -712,6 +730,22 @@ const RideRequestDetail: React.FC = () => {
               </div>
             )}
 
+            {/* Pay Now Button - Show only when booking_status is payment_pending and user is rider */}
+            {showPayNowButton && (
+              <div className="w-full">
+                <button
+                  onClick={handlePayNow}
+                  className="w-full px-4 py-3 bg-[#21409A] text-white rounded-lg font-medium hover:bg-[#1a347a] transition-colors text-center"
+                  style={{
+                    borderRadius: '2px',
+                    backgroundColor: '#21409A'
+                  }}
+                >
+                  Pay Now
+                </button>
+              </div>
+            )}
+
             {/* Status Message if not user's turn */}
             {!isMyTurn && (
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
@@ -731,3 +765,4 @@ const RideRequestDetail: React.FC = () => {
 };
 
 export default RideRequestDetail;
+

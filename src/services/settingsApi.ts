@@ -1,5 +1,5 @@
 // settingsApi.ts
-const BASE_URL = 'https://api-dev.oolalala.com/api';
+import { BASE_URL } from '../config/api';
 
 export interface Settings {
   fare_per_km_car: string;
@@ -30,7 +30,7 @@ export const fetchSettings = async (): Promise<Settings> => {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${BASE_URL}/settings`, {
+    const response = await fetch(`${BASE_URL}/api/settings`, {
       method: 'GET',
       headers,
     });
@@ -38,7 +38,7 @@ export const fetchSettings = async (): Promise<Settings> => {
     if (!response.ok) {
       if (response.status === 401) {
         // If unauthorized, try without token
-        const retryResponse = await fetch(`${BASE_URL}/settings`, {
+        const retryResponse = await fetch(`${BASE_URL}/api/settings`, {
           method: 'GET',
           headers: { 'accept': 'application/json' },
         });
@@ -93,7 +93,7 @@ export const fetchPreferences = async (): Promise<string[]> => {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${BASE_URL}/master/preferences`, {
+    const response = await fetch(`${BASE_URL}/api/master/preferences`, {
       method: 'GET',
       headers,
     });

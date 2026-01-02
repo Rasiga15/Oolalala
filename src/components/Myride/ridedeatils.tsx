@@ -1,4 +1,5 @@
-import { X, Calendar, Clock, Users, Car, MapPin, CheckCircle, AlertCircle } from "lucide-react";
+// ridedetails.tsx
+import { X, Calendar, Clock, Car, MapPin, CheckCircle, AlertCircle } from "lucide-react";
 import { RideDetails as RideDetailsType } from "@/services/myrideapi";
 
 // Format date and time

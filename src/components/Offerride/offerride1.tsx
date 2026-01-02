@@ -102,7 +102,7 @@ const OfferRide1: React.FC = () => {
   const [pickupLocation, setPickupLocation] = useState('');
   const [dropLocation, setDropLocation] = useState('');
   const [date, setDate] = useState('');
-  const [time, setTime] = useState(''); // This will store railway time (24-hour format for display)
+  const [time, setTime] = useState(''); 
   const [seats, setSeats] = useState(2);
   const [preferences, setPreferences] = useState<string[]>([]);
   const [selectedPreferences, setSelectedPreferences] = useState<string[]>([]);

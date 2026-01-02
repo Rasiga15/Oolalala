@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation, FiSun, FiMoon } from 'react-icons/fi';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { autocompletePlaces, getCurrentLocation, reverseGeocode, searchTextPlaces } from '../../services/placesApi';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
@@ -24,7 +24,9 @@ interface Place {
 
 export const HeroSection = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAuthenticated } = useAuth();
+  const searchFormRef = useRef<HTMLDivElement>(null);
   
   // State for form inputs
   const [fromLocation, setFromLocation] = useState('');
@@ -47,9 +49,43 @@ export const HeroSection = () => {
   const [isLocationLoading, setIsLocationLoading] = useState(false);
   const [error, setError] = useState('');
   
-  // Refs for handling click outside
+  // Refs for handling click outside and focus
   const fromRef = useRef<HTMLDivElement>(null);
   const toRef = useRef<HTMLDivElement>(null);
+  const fromInputRef = useRef<HTMLInputElement>(null);
+  
+  // Scroll to search form when location state has scrollToSearchForm
+  useEffect(() => {
+    if (location.state?.scrollToSearchForm && searchFormRef.current) {
+      // Clear any previous state first
+      setError('');
+      
+      setTimeout(() => {
+        // Smooth scroll to form
+        searchFormRef.current?.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center' // Changed from 'start' to 'center' for better visibility
+        });
+        
+        // Focus on "Pickup" input after scroll animation completes
+        setTimeout(() => {
+          if (fromInputRef.current) {
+            fromInputRef.current.focus();
+            // Move cursor to end of text
+            setTimeout(() => {
+              fromInputRef.current?.setSelectionRange(
+                fromInputRef.current.value.length, 
+                fromInputRef.current.value.length
+              );
+            }, 10);
+          }
+        }, 500); // Increased delay to ensure scroll completes
+      }, 150);
+      
+      // Clear the location state
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, navigate, location.pathname]);
   
   // Handle click outside to close suggestions
   useEffect(() => {
@@ -240,7 +276,7 @@ export const HeroSection = () => {
     return shortName.length > 30 ? shortName.substring(0, 30) : shortName;
   };
   
-  // Search rides API call - FIXED VERSION
+  // Search rides API call - COMPLETE CORRECTED VERSION WITH TIME_OF_DAY
   const searchRides = async () => {
     // Clear previous errors
     setError('');
@@ -303,8 +339,10 @@ export const HeroSection = () => {
       params.append('date', formattedDate);
       params.append('no_of_seat', seats.toString());
       
+      // Add time_of_day parameter (NEW)
+      params.append('time_of_day', timeOfDay);
+      
       // Optional parameters with defaults
-
       params.append('is_full_car', 'false');
       params.append('sort_by', 'time_asc');
       params.append('page', '1');
@@ -328,6 +366,7 @@ export const HeroSection = () => {
       }
       
       console.log('API Request URL:', `${BASE_URL}/api/rides/search?${params.toString()}`);
+      console.log('Time of Day parameter:', timeOfDay);
       
       const response = await axios.get(`${BASE_URL}/api/rides/search`, {
         params: Object.fromEntries(params),
@@ -347,6 +386,7 @@ export const HeroSection = () => {
       
       if (response.status === 200) {
         if (response.data && (response.data.rides || response.data.length > 0)) {
+          // Save search results to localStorage
           localStorage.setItem('searchResults', JSON.stringify(response.data));
           localStorage.setItem('searchParams', JSON.stringify({
             from: fromLocation,
@@ -357,10 +397,21 @@ export const HeroSection = () => {
             preferences
           }));
           
+          // Save coordinates for creating ride request
+          const searchCoordinates = {
+            from_lat: fromPlace.location.latitude,
+            from_lng: fromPlace.location.longitude,
+            to_lat: toPlace.location.latitude,
+            to_lng: toPlace.location.longitude
+          };
+          localStorage.setItem('searchCoordinates', JSON.stringify(searchCoordinates));
+          
+          // Navigate to find-ride page with all data
           navigate('/find-ride', { 
             state: { 
               searchResults: response.data,
-              searchParams: Object.fromEntries(params)
+              searchParams: Object.fromEntries(params),
+              searchCoordinates: searchCoordinates
             } 
           });
         } else {
@@ -474,7 +525,7 @@ export const HeroSection = () => {
         </div>
 
         {/* SEARCH FORM - Perfect 6 Columns Layout */}
-        <div className="relative mt-6 lg:mt-8">
+        <div className="relative mt-6 lg:mt-8" ref={searchFormRef}>
           <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-3 sm:p-4 max-w-7xl mx-auto relative z-20">
             
             {/* MAIN FORM ROW - 6 EQUAL COLUMNS */}
@@ -486,6 +537,7 @@ export const HeroSection = () => {
                   <FiMapPin className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <input
+                      ref={fromInputRef}
                       type="text"
                       value={fromLocation}
                       onChange={(e) => {
@@ -765,9 +817,6 @@ export const HeroSection = () => {
                 )}
               </div>
             )}
-            
-       
-           
           </div>
         </div>
       </div>

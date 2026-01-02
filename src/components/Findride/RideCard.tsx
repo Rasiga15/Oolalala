@@ -1,5 +1,4 @@
-import { CheckCircle2 } from "lucide-react";
-import { Star } from "lucide-react";
+import { CheckCircle2, Star, Sun, Moon } from "lucide-react";
 
 interface RideCardProps {
   ride_id: number;
@@ -18,6 +17,8 @@ interface RideCardProps {
   price: number;
   is_negotiable: boolean;
   onRequest: () => void;
+  // Add time_of_day prop
+  time_of_day?: 'day' | 'night';
 }
 
 const RideCard = ({
@@ -37,7 +38,45 @@ const RideCard = ({
   price,
   is_negotiable,
   onRequest,
+  time_of_day = 'day', // Default value
 }: RideCardProps) => {
+  
+  // Helper function to determine if it's day or night based on departure time
+  const getTimeOfDayFromTime = (timeStr: string): 'day' | 'night' => {
+    if (!timeStr) return 'day';
+    
+    try {
+      // Parse time like "14:30" or "2:30 PM"
+      let hour = 12;
+      
+      // Check if time is in 12-hour format with AM/PM
+      if (timeStr.toLowerCase().includes('pm') || timeStr.toLowerCase().includes('am')) {
+        const match = timeStr.match(/(\d+):?(\d+)?\s*(AM|PM)/i);
+        if (match) {
+          hour = parseInt(match[1]);
+          const isPM = match[3].toUpperCase() === 'PM';
+          
+          // Convert to 24-hour format
+          if (isPM && hour !== 12) hour += 12;
+          if (!isPM && hour === 12) hour = 0;
+        }
+      } else {
+        // 24-hour format like "14:30"
+        const [hours] = timeStr.split(':');
+        hour = parseInt(hours);
+      }
+      
+      // Determine day/night: 6 AM to 6 PM is day, otherwise night
+      return (hour >= 6 && hour < 18) ? 'day' : 'night';
+    } catch (error) {
+      console.error('Error parsing time:', error);
+      return 'day'; // Default to day
+    }
+  };
+
+  // Determine time of day to display
+  const displayTimeOfDay = time_of_day || getTimeOfDayFromTime(departure_time);
+
   return (
     <div className="bg-card rounded-lg border border-border p-5 shadow-sm animate-fade-in">
       <div className="flex justify-between items-start">
@@ -47,6 +86,25 @@ const RideCard = ({
             <span>{from}</span>
             <span className="text-muted-foreground">→</span>
             <span>{to}</span>
+            
+            {/* Time of Day Indicator */}
+            <div className={`inline-flex items-center gap-1 ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${
+              displayTimeOfDay === 'day' 
+                ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' 
+                : 'bg-blue-100 text-blue-800 border border-blue-200'
+            }`}>
+              {displayTimeOfDay === 'day' ? (
+                <>
+                  <Sun className="w-3 h-3" />
+                  <span>Day</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="w-3 h-3" />
+                  <span>Night</span>
+                </>
+              )}
+            </div>
           </div>
           
           {/* Time and Duration */}
