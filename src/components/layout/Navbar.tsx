@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiSearch, FiUser, FiMenu, FiX, FiLogOut, FiBell } from 'react-icons/fi';
+import { FiSearch, FiUser, FiMenu, FiX, FiLogOut, FiBell, FiCalendar } from 'react-icons/fi';
 import { MdDirectionsCar, MdOutlineCommute } from 'react-icons/md';
 import { FaWallet } from 'react-icons/fa';
 import rectangleLogo from '../../assets/Rectangle.svg';
@@ -271,16 +271,17 @@ export const Navbar: React.FC = () => {
             </button>
             
             {/* MY BOOKING LINK - Desktop */}
-            <button 
-              onClick={() => {
-                closeAll();
-                navigate('/my-bookings');
-              }}
-              className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
-            >
-              <FiSearch size={20} />
-              <span>My Booking</span>
-            </button>
+           <button 
+  onClick={() => {
+    closeAll();
+    navigate('/my-bookings');
+  }}
+  className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
+>
+  <FiCalendar size={20} />
+  <span>My Booking</span>
+</button>
+
             
             {/* WALLET LINK - Desktop */}
             <button 

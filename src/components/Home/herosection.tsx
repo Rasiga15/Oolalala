@@ -1,5 +1,833 @@
+// import React, { useState, useEffect, useRef } from 'react';
+// import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation, FiSun, FiMoon } from 'react-icons/fi';
+// import DatePicker from 'react-datepicker';
+// import 'react-datepicker/dist/react-datepicker.css';
+// import { useNavigate, useLocation } from 'react-router-dom';
+// import { autocompletePlaces, getCurrentLocation, reverseGeocode, searchTextPlaces } from '../../services/placesApi';
+// import { useAuth } from '../../contexts/AuthContext';
+// import axios from 'axios';
+// import carImage from '../../assets/mainhome.svg';
+// import { BASE_URL } from '@/config/api';
+
+// // Interface for place object
+// interface Place {
+//   id: string;
+//   displayName: {
+//     text: string;
+//   };
+//   formattedAddress: string;
+//   location?: {
+//     latitude: number;
+//     longitude: number;
+//   };
+// }
+
+// export const HeroSection = () => {
+//   const navigate = useNavigate();
+//   const location = useLocation();
+//   const { user, isAuthenticated } = useAuth();
+//   const searchFormRef = useRef<HTMLDivElement>(null);
+  
+//   // State for form inputs
+//   const [fromLocation, setFromLocation] = useState('');
+//   const [toLocation, setToLocation] = useState('');
+//   const [fromPlace, setFromPlace] = useState<Place | null>(null);
+//   const [toPlace, setToPlace] = useState<Place | null>(null);
+//   const [travelDate, setTravelDate] = useState<Date | null>(new Date());
+//   const [seats, setSeats] = useState(1);
+//   const [preferences, setPreferences] = useState<string[]>([]);
+//   const [timeOfDay, setTimeOfDay] = useState<'day' | 'night'>('day');
+  
+//   // State for autocomplete suggestions
+//   const [fromSuggestions, setFromSuggestions] = useState<Place[]>([]);
+//   const [toSuggestions, setToSuggestions] = useState<Place[]>([]);
+//   const [showFromSuggestions, setShowFromSuggestions] = useState(false);
+//   const [showToSuggestions, setShowToSuggestions] = useState(false);
+  
+//   // State for loading
+//   const [isLoading, setIsLoading] = useState(false);
+//   const [isLocationLoading, setIsLocationLoading] = useState(false);
+//   const [error, setError] = useState('');
+  
+//   // Refs for handling click outside and focus
+//   const fromRef = useRef<HTMLDivElement>(null);
+//   const toRef = useRef<HTMLDivElement>(null);
+//   const fromInputRef = useRef<HTMLInputElement>(null);
+  
+//   // Scroll to search form when location state has scrollToSearchForm
+//   useEffect(() => {
+//     if (location.state?.scrollToSearchForm && searchFormRef.current) {
+//       // Clear any previous state first
+//       setError('');
+      
+//       setTimeout(() => {
+//         // Smooth scroll to form
+//         searchFormRef.current?.scrollIntoView({ 
+//           behavior: 'smooth', 
+//           block: 'center' // Changed from 'start' to 'center' for better visibility
+//         });
+        
+//         // Focus on "Pickup" input after scroll animation completes
+//         setTimeout(() => {
+//           if (fromInputRef.current) {
+//             fromInputRef.current.focus();
+//             // Move cursor to end of text
+//             setTimeout(() => {
+//               fromInputRef.current?.setSelectionRange(
+//                 fromInputRef.current.value.length, 
+//                 fromInputRef.current.value.length
+//               );
+//             }, 10);
+//           }
+//         }, 500); // Increased delay to ensure scroll completes
+//       }, 150);
+      
+//       // Clear the location state
+//       navigate(location.pathname, { replace: true, state: {} });
+//     }
+//   }, [location.state, navigate, location.pathname]);
+  
+//   // Handle click outside to close suggestions
+//   useEffect(() => {
+//     const handleClickOutside = (event: MouseEvent) => {
+//       if (fromRef.current && !fromRef.current.contains(event.target as Node)) {
+//         setTimeout(() => setShowFromSuggestions(false), 200);
+//       }
+//       if (toRef.current && !toRef.current.contains(event.target as Node)) {
+//         setTimeout(() => setShowToSuggestions(false), 200);
+//       }
+//     };
+    
+//     document.addEventListener('mousedown', handleClickOutside);
+//     return () => document.removeEventListener('mousedown', handleClickOutside);
+//   }, []);
+  
+//   // Handle current location for "from" field
+//   const handleUseCurrentLocation = async () => {
+//     try {
+//       setIsLocationLoading(true);
+//       setError('');
+//       const position = await getCurrentLocation();
+//       const places = await reverseGeocode(position.lat, position.lng);
+//       if (places.length > 0) {
+//         const place = places[0];
+//         setFromLocation(place.displayName.text);
+//         setFromPlace(place);
+//         setShowFromSuggestions(false);
+//       }
+//     } catch (err: any) {
+//       setError('Unable to get current location. Please enable location services or enter manually.');
+//       console.error('Location error:', err);
+//     } finally {
+//       setIsLocationLoading(false);
+//     }
+//   };
+  
+//   // Debounced autocomplete function
+//   const debounce = (func: Function, delay: number) => {
+//     let timeoutId: NodeJS.Timeout;
+//     return (...args: any[]) => {
+//       clearTimeout(timeoutId);
+//       timeoutId = setTimeout(() => func(...args), delay);
+//     };
+//   };
+  
+//   // Handle from location input change
+//   const handleFromChange = async (value: string) => {
+//     setFromLocation(value);
+//     if (value.trim().length > 2) {
+//       try {
+//         const suggestions = await autocompletePlaces(value);
+//         setFromSuggestions(suggestions);
+//         setShowFromSuggestions(true);
+//       } catch (err) {
+//         console.error('Error fetching from suggestions:', err);
+//         try {
+//           const searchResults = await searchTextPlaces(value);
+//           setFromSuggestions(searchResults);
+//           setShowFromSuggestions(true);
+//         } catch (searchErr) {
+//           console.error('Error with search text API:', searchErr);
+//         }
+//       }
+//     } else {
+//       setFromSuggestions([]);
+//       setShowFromSuggestions(false);
+//     }
+//   };
+  
+//   // Handle to location input change
+//   const handleToChange = async (value: string) => {
+//     setToLocation(value);
+//     if (value.trim().length > 2) {
+//       try {
+//         const suggestions = await autocompletePlaces(value);
+//         setToSuggestions(suggestions);
+//         setShowToSuggestions(true);
+//       } catch (err) {
+//         console.error('Error fetching to suggestions:', err);
+//         try {
+//           const searchResults = await searchTextPlaces(value);
+//           setToSuggestions(searchResults);
+//           setShowToSuggestions(true);
+//         } catch (searchErr) {
+//           console.error('Error with search text API:', searchErr);
+//         }
+//       }
+//     } else {
+//       setToSuggestions([]);
+//       setShowToSuggestions(false);
+//     }
+//   };
+  
+//   // Debounced handlers
+//   const debouncedFromChange = React.useCallback(debounce(handleFromChange, 300), []);
+//   const debouncedToChange = React.useCallback(debounce(handleToChange, 300), []);
+  
+//   // Handle place selection
+//   const handleSelectFromPlace = (place: Place) => {
+//     setFromLocation(place.displayName.text);
+//     setFromPlace(place);
+//     setFromSuggestions([]);
+//     setShowFromSuggestions(false);
+//     setError('');
+//   };
+  
+//   const handleSelectToPlace = (place: Place) => {
+//     setToLocation(place.displayName.text);
+//     setToPlace(place);
+//     setToSuggestions([]);
+//     setShowToSuggestions(false);
+//     setError('');
+//   };
+  
+//   // Clear from field
+//   const handleClearFrom = () => {
+//     setFromLocation('');
+//     setFromPlace(null);
+//     setFromSuggestions([]);
+//     setShowFromSuggestions(false);
+//   };
+  
+//   // Clear to field
+//   const handleClearTo = () => {
+//     setToLocation('');
+//     setToPlace(null);
+//     setToSuggestions([]);
+//     setShowToSuggestions(false);
+//   };
+  
+//   // Handle seats increment/decrement
+//   const handleIncrementSeats = () => {
+//     setSeats(prev => prev + 1);
+//   };
+  
+//   const handleDecrementSeats = () => {
+//     if (seats > 1) {
+//       setSeats(prev => prev - 1);
+//     }
+//   };
+  
+//   // Handle time of day toggle
+//   const handleTimeOfDayToggle = (type: 'day' | 'night') => {
+//     setTimeOfDay(type);
+//   };
+  
+//   // Handle preferences toggle
+//   const handlePreferenceToggle = (pref: string, label: string) => {
+//     setPreferences(prev => 
+//       prev.includes(pref) 
+//         ? prev.filter(p => p !== pref)
+//         : [...prev, pref]
+//     );
+//   };
+  
+//   // Validate location coordinates
+//   const isValidCoordinate = (coord: number | undefined): boolean => {
+//     if (coord === undefined || coord === null) return false;
+//     if (coord === 0) return false;
+//     if (Math.abs(coord) > 180) return false; // Valid latitude/longitude range
+//     return true;
+//   };
+  
+//   // Check if search button should be enabled
+//   const isSearchEnabled = () => {
+//     if (!fromPlace?.location || !toPlace?.location || !travelDate) return false;
+    
+//     // Validate coordinates
+//     const fromLat = fromPlace.location.latitude;
+//     const fromLng = fromPlace.location.longitude;
+//     const toLat = toPlace.location.latitude;
+//     const toLng = toPlace.location.longitude;
+    
+//     return (
+//       isValidCoordinate(fromLat) &&
+//       isValidCoordinate(fromLng) &&
+//       isValidCoordinate(toLat) &&
+//       isValidCoordinate(toLng)
+//     );
+//   };
+  
+//   // Get short location name
+//   const getShortLocation = (location: string): string => {
+//     if (!location) return '';
+//     // Take first part before comma or first 20 characters
+//     const shortName = location.split(',')[0].trim();
+//     return shortName.length > 30 ? shortName.substring(0, 30) : shortName;
+//   };
+  
+//   // Search rides API call - COMPLETE CORRECTED VERSION WITH TIME_OF_DAY
+//   const searchRides = async () => {
+//     // Clear previous errors
+//     setError('');
+    
+//     if (!isAuthenticated) {
+//       setError('Please login to search for rides');
+//       navigate('/login');
+//       return;
+//     }
+    
+//     // Validate required fields
+//     if (!fromPlace?.location || !toPlace?.location) {
+//       setError('Please select both pickup and dropoff locations');
+//       return;
+//     }
+    
+//     if (!travelDate) {
+//       setError('Please select a travel date');
+//       return;
+//     }
+    
+//     // Validate coordinates
+//     const fromLat = fromPlace.location.latitude;
+//     const fromLng = fromPlace.location.longitude;
+//     const toLat = toPlace.location.latitude;
+//     const toLng = toPlace.location.longitude;
+    
+//     if (!isValidCoordinate(fromLat) || !isValidCoordinate(fromLng)) {
+//       setError('Invalid pickup location coordinates');
+//       return;
+//     }
+    
+//     if (!isValidCoordinate(toLat) || !isValidCoordinate(toLng)) {
+//       setError('Invalid dropoff location coordinates');
+//       return;
+//     }
+    
+//     setIsLoading(true);
+    
+//     try {
+//       const token = user?.token || localStorage.getItem('token') || '';
+      
+//       if (!token) {
+//         setError('Please login to search for rides');
+//         navigate('/login');
+//         return;
+//       }
+      
+//       // Format date to YYYY-MM-DD
+//       const formattedDate = travelDate.toISOString().split('T')[0];
+      
+//       // Build query parameters
+//       const params = new URLSearchParams();
+      
+//       // Required parameters
+//       params.append('from_lat', fromLat.toString());
+//       params.append('from_lng', fromLng.toString());
+//       params.append('to_lat', toLat.toString());
+//       params.append('to_lng', toLng.toString());
+//       params.append('date', formattedDate);
+//       params.append('no_of_seat', seats.toString());
+      
+//       // Add time_of_day parameter (NEW)
+//       params.append('time_of_day', timeOfDay);
+      
+//       // Optional parameters with defaults
+//       params.append('is_full_car', 'false');
+//       params.append('sort_by', 'time_asc');
+//       params.append('page', '1');
+//       params.append('limit', '10');
+      
+//       // Add short location names
+//       const fromShort = getShortLocation(fromLocation);
+//       const toShort = getShortLocation(toLocation);
+      
+//       if (fromShort) {
+//         params.append('from_short_location', fromShort);
+//       }
+      
+//       if (toShort) {
+//         params.append('to_short_location', toShort);
+//       }
+      
+//       // Add preferences if any
+//       if (preferences.length > 0) {
+//         params.append('preferences', preferences.join(','));
+//       }
+      
+//       console.log('API Request URL:', `${BASE_URL}/api/rides/search?${params.toString()}`);
+//       console.log('Time of Day parameter:', timeOfDay);
+      
+//       const response = await axios.get(`${BASE_URL}/api/rides/search`, {
+//         params: Object.fromEntries(params),
+//         headers: {
+//           'Authorization': `Bearer ${token}`,
+//           'accept': 'application/json',
+//           'Content-Type': 'application/json'
+//         },
+//         timeout: 15000,
+//         validateStatus: function (status) {
+//           return status < 500; // Resolve only if status code is less than 500
+//         }
+//       });
+      
+//       console.log('API Response Status:', response.status);
+//       console.log('API Response Data:', response.data);
+      
+//       if (response.status === 200) {
+//         if (response.data && (response.data.rides || response.data.length > 0)) {
+//           // Save search results to localStorage
+//           localStorage.setItem('searchResults', JSON.stringify(response.data));
+//           localStorage.setItem('searchParams', JSON.stringify({
+//             from: fromLocation,
+//             to: toLocation,
+//             date: travelDate,
+//             timeOfDay,
+//             seats,
+//             preferences
+//           }));
+          
+//           // Save coordinates for creating ride request
+//           const searchCoordinates = {
+//             from_lat: fromPlace.location.latitude,
+//             from_lng: fromPlace.location.longitude,
+//             to_lat: toPlace.location.latitude,
+//             to_lng: toPlace.location.longitude
+//           };
+//           localStorage.setItem('searchCoordinates', JSON.stringify(searchCoordinates));
+          
+//           // Navigate to find-ride page with all data
+//           navigate('/find-ride', { 
+//             state: { 
+//               searchResults: response.data,
+//               searchParams: Object.fromEntries(params),
+//               searchCoordinates: searchCoordinates
+//             } 
+//           });
+//         } else {
+//           setError('No rides found for your search criteria.');
+//         }
+//       } else if (response.status === 400) {
+//         // Log the actual error response from server
+//         console.error('Bad Request Details:', response.data);
+//         setError(response.data?.message || 'Invalid search parameters. Please check your inputs.');
+//       } else if (response.status === 401) {
+//         setError('Your session has expired. Please login again.');
+//         localStorage.removeItem('token');
+//         navigate('/login');
+//       } else if (response.status === 404) {
+//         setError('No rides found for your search criteria.');
+//       } else {
+//         setError(response.data?.message || `Server error: ${response.status}`);
+//       }
+//     } catch (err: any) {
+//       console.error('Error searching rides:', err);
+      
+//       if (err.response) {
+//         // Server responded with error
+//         if (err.response.status === 400) {
+//           const errorData = err.response.data;
+//           console.error('400 Error Details:', errorData);
+          
+//           if (errorData.errors) {
+//             // Handle validation errors from server
+//             const errorMessages = Object.values(errorData.errors).flat().join(', ');
+//             setError(`Validation error: ${errorMessages}`);
+//           } else {
+//             setError(errorData.message || 'Invalid request parameters.');
+//           }
+//         } else if (err.response.status === 401) {
+//           setError('Authentication failed. Please login again.');
+//           navigate('/login');
+//         } else {
+//           setError(err.response.data?.message || `Server error: ${err.response.status}`);
+//         }
+//       } else if (err.request) {
+//         // Request made but no response
+//         setError('Network error. Please check your internet connection and try again.');
+//       } else {
+//         // Other errors
+//         setError('Failed to search rides. Please try again.');
+//       }
+//     } finally {
+//       setIsLoading(false);
+//     }
+//   };
+  
+//   const handleFindRideClick = () => {
+//     if (!isAuthenticated) {
+//       navigate('/login');
+//       return;
+//     }
+//     navigate('/offer-ride1');
+//   };
+
+//   // Render suggestion item
+//   const renderSuggestionItem = (place: Place, onClick: () => void) => (
+//     <div
+//       key={place.id}
+//       className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 transition-colors"
+//       onClick={onClick}
+//     >
+//       <div className="font-medium text-sm text-gray-800">{place.displayName.text}</div>
+//       <div className="text-xs text-gray-500 truncate">{place.formattedAddress}</div>
+//     </div>
+//   );
+
+//   return (
+//     <section className="relative bg-white pt-16 lg:pt-20 pb-16 md:pb-20 lg:pb-24">
+//       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+        
+//         {/* Main Hero Content */}
+//         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10 items-center mb-6 lg:mb-10">
+          
+//           {/* Left Content */}
+//           <div className="space-y-4 lg:space-y-6">
+//             <div className="border-l-4 border-[#21409A] pl-3 lg:pl-4">
+//               <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 italic leading-tight">
+//                 Find Your Perfect<br />
+//                 Ride in Minutes.
+//               </h1>
+//             </div>
+
+//             <p className="text-gray-600 text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed max-w-xl">
+//               Trusted drivers, affordable trips, and a community that moves together.
+//             </p>
+
+//             <div className="flex flex-wrap gap-2 pt-1">
+//               <button
+//                 onClick={handleFindRideClick}
+//                 className="bg-[#21409A] text-white px-5 py-2.5 rounded-full text-sm font-medium flex items-center gap-2 hover:bg-[#21409A]/90 transition cursor-pointer"
+//               >
+//                 Offer ride <FiArrowRight />
+//               </button>
+//             </div>
+//           </div>
+
+//           {/* Right Content - Image */}
+//           <div className="flex justify-center lg:justify-end mt-6 lg:mt-0">
+//             <img
+//               src={carImage}
+//               alt="Car"
+//               className="w-full max-w-sm sm:max-w-md md:max-w-md lg:max-w-lg xl:max-w-xl object-contain"
+//             />
+//           </div>
+//         </div>
+
+//         {/* SEARCH FORM - Perfect 6 Columns Layout */}
+//         <div className="relative mt-6 lg:mt-8" ref={searchFormRef}>
+//           <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-3 sm:p-4 max-w-7xl mx-auto relative z-20">
+            
+//             {/* MAIN FORM ROW - 6 EQUAL COLUMNS */}
+//             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-3 items-center">
+              
+//               {/* 1. FROM */}
+//               <div className="relative" ref={fromRef}>
+//                 <div className="flex items-center gap-1 sm:gap-2 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+//                   <FiMapPin className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
+//                   <div className="flex-1 min-w-0">
+//                     <input
+//                       ref={fromInputRef}
+//                       type="text"
+//                       value={fromLocation}
+//                       onChange={(e) => {
+//                         setFromLocation(e.target.value);
+//                         debouncedFromChange(e.target.value);
+//                       }}
+//                       onFocus={() => {
+//                         if (fromLocation.trim().length > 2 && fromSuggestions.length > 0) {
+//                           setShowFromSuggestions(true);
+//                         }
+//                       }}
+//                       placeholder="Pickup"
+//                       className="w-full text-xs sm:text-sm outline-none bg-transparent placeholder-gray-400"
+//                     />
+//                   </div>
+//                   <div className="flex items-center gap-0.5 flex-shrink-0">
+//                     {isLocationLoading ? (
+//                       <div className="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-[#21409A]"></div>
+//                     ) : (
+//                       <button
+//                         onClick={handleUseCurrentLocation}
+//                         className="text-[9px] sm:text-[10px] text-[#21409A] hover:text-[#1a347d] p-0.5 rounded hover:bg-gray-100"
+//                         type="button"
+//                         title="Current"
+//                       >
+//                         <FiNavigation size={9} className="sm:size-[10px]" />
+//                       </button>
+//                     )}
+//                     {fromLocation && (
+//                       <button
+//                         onClick={handleClearFrom}
+//                         className="text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100"
+//                         type="button"
+//                       >
+//                         <FiX size={9} className="sm:size-[10px]" />
+//                       </button>
+//                     )}
+//                   </div>
+//                 </div>
+                
+//                 {/* From Suggestions */}
+//                 {showFromSuggestions && fromSuggestions.length > 0 && (
+//                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+//                     {fromSuggestions.map((place) => 
+//                       renderSuggestionItem(place, () => handleSelectFromPlace(place))
+//                     )}
+//                   </div>
+//                 )}
+//               </div>
+
+//               {/* 2. TO */}
+//               <div className="relative" ref={toRef}>
+//                 <div className="flex items-center gap-1 sm:gap-2 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+//                   <FiMapPin className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
+//                   <div className="flex-1 min-w-0">
+//                     <input
+//                       type="text"
+//                       value={toLocation}
+//                       onChange={(e) => {
+//                         setToLocation(e.target.value);
+//                         debouncedToChange(e.target.value);
+//                       }}
+//                       onFocus={() => {
+//                         if (toLocation.trim().length > 2 && toSuggestions.length > 0) {
+//                           setShowToSuggestions(true);
+//                         }
+//                       }}
+//                       placeholder="Dropoff"
+//                       className="w-full text-xs sm:text-sm outline-none bg-transparent placeholder-gray-400"
+//                     />
+//                   </div>
+//                   {toLocation && (
+//                     <button
+//                       onClick={handleClearTo}
+//                       className="text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100 flex-shrink-0"
+//                       type="button"
+//                     >
+//                       <FiX size={9} className="sm:size-[10px]" />
+//                     </button>
+//                   )}
+//                 </div>
+                
+//                 {/* To Suggestions */}
+//                 {showToSuggestions && toSuggestions.length > 0 && (
+//                   <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+//                     {toSuggestions.map((place) => 
+//                       renderSuggestionItem(place, () => handleSelectToPlace(place))
+//                     )}
+//                   </div>
+//                 )}
+//               </div>
+
+//               {/* 3. DATE */}
+//               <div className="flex items-center gap-1 sm:gap-2 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+//                 <FiCalendar className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
+//                 <DatePicker
+//                   selected={travelDate}
+//                   onChange={(date) => setTravelDate(date)}
+//                   minDate={new Date()}
+//                   dateFormat="MMM d"
+//                   className="w-full text-xs sm:text-sm outline-none bg-transparent cursor-pointer placeholder-gray-400"
+//                   placeholderText="Date"
+//                   wrapperClassName="w-full"
+//                 />
+//               </div>
+
+//               {/* 4. DAY/NIGHT - Now as separate column */}
+//               <div className="flex items-center justify-center gap-1 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+//                 <div className="flex items-center gap-1.5 w-full">
+//                   <div className="flex border border-gray-300 rounded-md overflow-hidden w-full">
+//                     <button
+//                       onClick={() => handleTimeOfDayToggle('day')}
+//                       className={`flex-1 px-2 py-1.5 text-[10px] sm:text-xs transition-colors flex items-center justify-center gap-1 ${
+//                         timeOfDay === 'day' 
+//                           ? 'bg-yellow-500 text-white' 
+//                           : 'bg-white text-gray-600 hover:bg-gray-50'
+//                       }`}
+//                     >
+//                       <FiSun size={10} className="sm:size-[12px]" />
+//                       <span>Day</span>
+//                     </button>
+                    
+//                     <button
+//                       onClick={() => handleTimeOfDayToggle('night')}
+//                       className={`flex-1 px-2 py-1.5 text-[10px] sm:text-xs transition-colors flex items-center justify-center gap-1 ${
+//                         timeOfDay === 'night' 
+//                           ? 'bg-blue-600 text-white' 
+//                           : 'bg-white text-gray-600 hover:bg-gray-50'
+//                       }`}
+//                     >
+//                       <FiMoon size={10} className="sm:size-[12px]" />
+//                       <span>Night</span>
+//                     </button>
+//                   </div>
+//                 </div>
+//               </div>
+
+//               {/* 5. SEAT */}
+//               <div className="flex items-center justify-between border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
+//                 <div className="flex items-center justify-between w-full">
+//                   <div className="flex items-center gap-1">
+//                     <FiUser className="text-gray-400 text-sm sm:text-base flex-shrink-0" />
+//                     <span className="text-xs sm:text-sm text-gray-600 hidden sm:inline">Seats</span>
+//                   </div>
+//                   <div className="flex items-center gap-1 sm:gap-2">
+//                     <button
+//                       type="button"
+//                       onClick={handleDecrementSeats}
+//                       disabled={seats <= 1}
+//                       className="w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-100 disabled:opacity-50"
+//                     >
+//                       <span className="text-gray-600 text-xs">-</span>
+//                     </button>
+//                     <div className="text-center min-w-[24px] sm:min-w-[30px]">
+//                       <span className="text-xs sm:text-sm font-medium text-gray-800">{seats}</span>
+//                     </div>
+//                     <button
+//                       type="button"
+//                       onClick={handleIncrementSeats}
+//                       className="w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-100"
+//                     >
+//                       <span className="text-gray-600 text-xs">+</span>
+//                     </button>
+//                   </div>
+//                 </div>
+//               </div>
+
+//               {/* 6. SEARCH BUTTON */}
+//               <button
+//                 onClick={searchRides}
+//                 disabled={!isSearchEnabled() || isLoading}
+//                 className={`
+//                   px-2 sm:px-3 py-2.5 rounded-lg text-xs sm:text-sm font-medium
+//                   transition w-full flex items-center justify-center gap-1
+//                   ${isSearchEnabled() && !isLoading
+//                     ? 'bg-[#21409A] text-white hover:bg-[#1a347d] active:bg-[#152a6a] cursor-pointer'
+//                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+//                   }
+//                   shadow-sm
+//                 `}
+//               >
+//                 {isLoading ? (
+//                   <>
+//                     <div className="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-white"></div>
+//                     <span className="ml-1">Searching...</span>
+//                   </>
+//                 ) : (
+//                   <>
+//                     <FiSearch size={11} className="sm:size-[13px]" />
+//                     <span className="ml-1">Search Ride</span>
+//                   </>
+//                 )}
+//               </button>
+//             </div>
+
+//             {/* Error Message */}
+//             {error && (
+//               <div className="mt-2 sm:mt-3 text-xs sm:text-sm text-red-600 bg-red-50 p-2 rounded border border-red-200">
+//                 {error}
+//               </div>
+//             )}
+
+//             {/* Filters - Preferences */}
+//             <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-3 sm:mt-4">
+//               <button 
+//                 onClick={() => handlePreferenceToggle('ladies_only', 'Ladies only')}
+//                 className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+//                   preferences.includes('ladies_only') 
+//                     ? 'bg-pink-50 border-pink-300 text-pink-700'
+//                     : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
+//                 }`}
+//               >
+//                 👩 Ladies only
+//                 {preferences.includes('ladies_only') && <FiX size={8} className="sm:size-[10px]" />}
+//               </button>
+//               <button 
+//                 onClick={() => handlePreferenceToggle('senior_citizen', 'Senior Citizen')}
+//                 className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+//                   preferences.includes('senior_citizen') 
+//                     ? 'bg-orange-50 border-orange-300 text-orange-700'
+//                     : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
+//                 }`}
+//               >
+//                 🧓 Senior Citizen
+//                 {preferences.includes('senior_citizen') && <FiX size={8} className="sm:size-[10px]" />}
+//               </button>
+//               <button 
+//                 onClick={() => handlePreferenceToggle('kids_friendly', 'Kids friendly')}
+//                 className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+//                   preferences.includes('kids_friendly') 
+//                     ? 'bg-blue-50 border-blue-300 text-blue-700'
+//                     : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
+//                 }`}
+//               >
+//                 👶 Kids friendly
+//                 {preferences.includes('kids_friendly') && <FiX size={8} className="sm:size-[10px]" />}
+//               </button>
+//             </div>
+            
+//             {/* Selected Preferences */}
+//             {preferences.length > 0 && (
+//               <div className="mt-2 sm:mt-3 text-xs text-gray-500 flex items-center gap-1 flex-wrap">
+//                 <span className="font-medium">Selected:</span>
+//                 {preferences.map(pref => {
+//                   const labels: Record<string, string> = {
+//                     'ladies_only': 'Ladies only',
+//                     'senior_citizen': 'Senior Citizen',
+//                     'kids_friendly': 'Kids friendly'
+//                   };
+//                   return (
+//                     <span key={pref} className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">
+//                       {labels[pref] || pref}
+//                     </span>
+//                   );
+//                 })}
+//               </div>
+//             )}
+            
+//             {/* Selected Locations Info */}
+//             {(fromPlace || toPlace) && (
+//               <div className="mt-2 text-xs text-gray-500 space-y-0.5">
+//                 {fromPlace?.location && (
+//                   <div className="break-words truncate">
+//                     From: {getShortLocation(fromLocation)} 
+//                     {fromPlace.location.latitude && fromPlace.location.longitude && 
+//                       ` (${fromPlace.location.latitude.toFixed(4)}, ${fromPlace.location.longitude.toFixed(4)})`
+//                     }
+//                   </div>
+//                 )}
+//                 {toPlace?.location && (
+//                   <div className="break-words truncate">
+//                     To: {getShortLocation(toLocation)}
+//                     {toPlace.location.latitude && toPlace.location.longitude && 
+//                       ` (${toPlace.location.latitude.toFixed(4)}, ${toPlace.location.longitude.toFixed(4)})`
+//                     }
+//                   </div>
+//                 )}
+//               </div>
+//             )}
+//           </div>
+//         </div>
+//       </div>
+//     </section>
+//   );
+// };
+
+// export default HeroSection;
+
 import React, { useState, useEffect, useRef } from 'react';
-import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation, FiSun, FiMoon } from 'react-icons/fi';
+import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation } from 'react-icons/fi';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -36,7 +864,6 @@ export const HeroSection = () => {
   const [travelDate, setTravelDate] = useState<Date | null>(new Date());
   const [seats, setSeats] = useState(1);
   const [preferences, setPreferences] = useState<string[]>([]);
-  const [timeOfDay, setTimeOfDay] = useState<'day' | 'night'>('day');
   
   // State for autocomplete suggestions
   const [fromSuggestions, setFromSuggestions] = useState<Place[]>([]);
@@ -228,11 +1055,6 @@ export const HeroSection = () => {
     }
   };
   
-  // Handle time of day toggle
-  const handleTimeOfDayToggle = (type: 'day' | 'night') => {
-    setTimeOfDay(type);
-  };
-  
   // Handle preferences toggle
   const handlePreferenceToggle = (pref: string, label: string) => {
     setPreferences(prev => 
@@ -276,7 +1098,7 @@ export const HeroSection = () => {
     return shortName.length > 30 ? shortName.substring(0, 30) : shortName;
   };
   
-  // Search rides API call - COMPLETE CORRECTED VERSION WITH TIME_OF_DAY
+  // Search rides API call - WITHOUT TIME_OF_DAY parameter
   const searchRides = async () => {
     // Clear previous errors
     setError('');
@@ -328,7 +1150,7 @@ export const HeroSection = () => {
       // Format date to YYYY-MM-DD
       const formattedDate = travelDate.toISOString().split('T')[0];
       
-      // Build query parameters
+      // Build query parameters WITHOUT time_of_day
       const params = new URLSearchParams();
       
       // Required parameters
@@ -338,9 +1160,6 @@ export const HeroSection = () => {
       params.append('to_lng', toLng.toString());
       params.append('date', formattedDate);
       params.append('no_of_seat', seats.toString());
-      
-      // Add time_of_day parameter (NEW)
-      params.append('time_of_day', timeOfDay);
       
       // Optional parameters with defaults
       params.append('is_full_car', 'false');
@@ -366,7 +1185,6 @@ export const HeroSection = () => {
       }
       
       console.log('API Request URL:', `${BASE_URL}/api/rides/search?${params.toString()}`);
-      console.log('Time of Day parameter:', timeOfDay);
       
       const response = await axios.get(`${BASE_URL}/api/rides/search`, {
         params: Object.fromEntries(params),
@@ -392,7 +1210,6 @@ export const HeroSection = () => {
             from: fromLocation,
             to: toLocation,
             date: travelDate,
-            timeOfDay,
             seats,
             preferences
           }));
@@ -524,12 +1341,12 @@ export const HeroSection = () => {
           </div>
         </div>
 
-        {/* SEARCH FORM - Perfect 6 Columns Layout */}
+        {/* SEARCH FORM - Perfect 5 Columns Layout (removed day/night column) */}
         <div className="relative mt-6 lg:mt-8" ref={searchFormRef}>
           <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-3 sm:p-4 max-w-7xl mx-auto relative z-20">
             
-            {/* MAIN FORM ROW - 6 EQUAL COLUMNS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-3 items-center">
+            {/* MAIN FORM ROW - 5 EQUAL COLUMNS (now without day/night) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 items-center">
               
               {/* 1. FROM */}
               <div className="relative" ref={fromRef}>
@@ -644,38 +1461,7 @@ export const HeroSection = () => {
                 />
               </div>
 
-              {/* 4. DAY/NIGHT - Now as separate column */}
-              <div className="flex items-center justify-center gap-1 border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
-                <div className="flex items-center gap-1.5 w-full">
-                  <div className="flex border border-gray-300 rounded-md overflow-hidden w-full">
-                    <button
-                      onClick={() => handleTimeOfDayToggle('day')}
-                      className={`flex-1 px-2 py-1.5 text-[10px] sm:text-xs transition-colors flex items-center justify-center gap-1 ${
-                        timeOfDay === 'day' 
-                          ? 'bg-yellow-500 text-white' 
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      <FiSun size={10} className="sm:size-[12px]" />
-                      <span>Day</span>
-                    </button>
-                    
-                    <button
-                      onClick={() => handleTimeOfDayToggle('night')}
-                      className={`flex-1 px-2 py-1.5 text-[10px] sm:text-xs transition-colors flex items-center justify-center gap-1 ${
-                        timeOfDay === 'night' 
-                          ? 'bg-blue-600 text-white' 
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      <FiMoon size={10} className="sm:size-[12px]" />
-                      <span>Night</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* 5. SEAT */}
+              {/* 4. SEAT */}
               <div className="flex items-center justify-between border border-gray-200 rounded-lg px-2 sm:px-3 py-2.5 hover:border-[#21409A] transition-colors h-full">
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-1">
@@ -705,7 +1491,7 @@ export const HeroSection = () => {
                 </div>
               </div>
 
-              {/* 6. SEARCH BUTTON */}
+              {/* 5. SEARCH BUTTON */}
               <button
                 onClick={searchRides}
                 disabled={!isSearchEnabled() || isLoading}
