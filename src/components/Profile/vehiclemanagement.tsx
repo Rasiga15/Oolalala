@@ -6,15 +6,12 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useAuth } from '../../contexts/AuthContext';
 import ConfirmationModal from '../common/ConfirmationModal';
-
 import { getUserDocuments } from '../../services/documentApi';
-// Import the useProfile hook
 import { useProfile } from '../../pages/Profile';
 
 const VehicleManagement: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  // Use the central profile data
   const { profileData: centralProfileData } = useProfile();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,11 +99,19 @@ const VehicleManagement: React.FC = () => {
   };
 
   const validateVehicleNumber = (number: string): boolean => {
+    // Check if empty
     if (!number.trim()) {
       setFormError('Vehicle number is required');
       return false;
     }
     
+    // Check maximum length (10 characters)
+    if (number.trim().length > 10) {
+      setFormError('Vehicle number cannot exceed 10 characters');
+      return false;
+    }
+    
+    // Check valid format using regex
     const regex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{1,4}$/;
     if (!regex.test(number.toUpperCase())) {
       setFormError('Please enter a valid vehicle number (e.g., TN01CD1234)');
@@ -270,8 +275,27 @@ const VehicleManagement: React.FC = () => {
     }
   };
 
-  // Handle ID Proof verification button click
- 
+  // Handle input change with max length validation
+  const handleVehicleNumberChange = (value: string) => {
+    // Convert to uppercase
+    const upperValue = value.toUpperCase();
+    
+    // Limit to 10 characters
+    if (upperValue.length <= 10) {
+      setVehicleNumber(upperValue);
+      
+      // Clear error if user is correcting
+      if (formError && upperValue.length <= 10) {
+        setFormError('');
+      }
+      
+      // Show error if exceeding 10 characters
+      if (upperValue.length > 10) {
+        setFormError('Vehicle number cannot exceed 10 characters');
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -285,9 +309,7 @@ const VehicleManagement: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
      
-
       {/* Main Content */}
       <main className="pt-20 pb-32 px-4 md:px-6">
         <div className="max-w-4xl mx-auto">
@@ -666,17 +688,15 @@ const VehicleManagement: React.FC = () => {
                       type="text"
                       placeholder="TN01CD1234"
                       value={vehicleNumber}
-                      onChange={(e) => {
-                        const value = e.target.value.toUpperCase();
-                        setVehicleNumber(value);
-                        if (formError && value.trim()) {
-                          validateVehicleNumber(value);
-                        }
-                      }}
+                      onChange={(e) => handleVehicleNumberChange(e.target.value)}
                       className="h-12 text-base font-medium tracking-wider pr-12"
+                      maxLength={10} // HTML maxlength attribute for additional client-side restriction
                       autoFocus
                     />
-                    {vehicleNumber && !formError && (
+                    <div className="absolute right-12 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                      {vehicleNumber.length}/10
+                    </div>
+                    {vehicleNumber && !formError && vehicleNumber.length <= 10 && (
                       <div className="absolute right-3 top-1/2 -translate-y-1/2">
                         <div className="w-6 h-6 rounded-full flex items-center justify-center bg-primary">
                           <Check size={14} className="text-white" />
@@ -690,9 +710,14 @@ const VehicleManagement: React.FC = () => {
                       {formError}
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Format: State Code + Number (e.g., TN01CD1234)
-                  </p>
+                  <div className="flex justify-between">
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Format: State Code + Number (e.g., TN01CD1234)
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Max: 10 characters
+                    </p>
+                  </div>
                 </div>
 
                 {/* Information Note */}
@@ -706,7 +731,7 @@ const VehicleManagement: React.FC = () => {
                 {/* Save/Update Button */}
                 <Button
                   onClick={editingVehicle ? handleEditVehicle : handleAddVehicle}
-                  disabled={submitting || !vehicleNumber.trim()}
+                  disabled={submitting || !vehicleNumber.trim() || vehicleNumber.length > 10}
                   className="w-full h-12"
                   size="lg"
                 >
@@ -742,8 +767,6 @@ const VehicleManagement: React.FC = () => {
         type="danger"
         isLoading={deleteLoading}
       />
-
-     
     </div>
   );
 };

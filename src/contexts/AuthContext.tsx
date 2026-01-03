@@ -231,7 +231,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.removeItem('isGuest');
 
         console.log('✅ Login successful');
-        toast.success(`Welcome back, ${userData.first_name}!`);
+        toast.success(`Welcome , ${userData.first_name}!`);
         return true;
       }
       

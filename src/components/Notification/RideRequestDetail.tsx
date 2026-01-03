@@ -1074,7 +1074,7 @@ const RideRequestDetail: React.FC = () => {
           // });
 
           // Navigate to success page or refresh booking status
-          navigate('/payment-success', { 
+          navigate('/riderequestdetails', { 
             state: { 
               bookingId: bookingData.booking_id,
               paymentId: response.razorpay_payment_id 

@@ -34,14 +34,17 @@ const ConfirmRequestPanel = ({
   onSuccess
 }: ConfirmRequestPanelProps) => {
   const { toast } = useToast();
-  const [selectedOption, setSelectedOption] = useState<"same" | "negotiate">(isNegotiable ? "negotiate" : "same");
+  
+  const [selectedOption, setSelectedOption] = useState<"same" | "negotiate">(
+    isNegotiable ? "negotiate" : "same"
+  );
+  
   const [remarks, setRemarks] = useState("");
   const [seatsRequested, setSeatsRequested] = useState(1);
   const [negotiatedPrice, setNegotiatedPrice] = useState<string>(price.toString());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Get auth token
   const getAuthToken = (): string => {
     const token = localStorage.getItem('authToken') || '';
     if (!token) {
@@ -180,7 +183,9 @@ const ConfirmRequestPanel = ({
         <div>
           <h3 className="text-foreground font-semibold text-base sm:text-lg">Confirm Request</h3>
           <p className="text-muted-foreground text-xs sm:text-sm mt-1">
-            Choose how you'd like to proceed with your ride.
+            {isNegotiable 
+              ? "You can negotiate the price for this ride." 
+              : "Send your request at the listed price."}
           </p>
         </div>
         <button
@@ -243,90 +248,73 @@ const ConfirmRequestPanel = ({
         </p>
       </div>
 
-      {/* Price Options */}
+      {/* Show only ONE option based on isNegotiable */}
       <div className="space-y-2 sm:space-y-3 mt-3 sm:mt-4">
-        <button
-          onClick={() => setSelectedOption("same")}
-          disabled={isSubmitting}
-          className={`w-full flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border transition-all ${
-            selectedOption === "same"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-muted-foreground/30 disabled:opacity-50 disabled:cursor-not-allowed"
-          }`}
-        >
-          {selectedOption === "same" ? (
-            <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-primary fill-primary stroke-card" />
-          ) : (
-            <Circle className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
-          )}
-          <div className="text-left flex-1">
-            <p className="text-foreground font-medium text-xs sm:text-sm">Request at same price</p>
-            <p className="text-muted-foreground text-xs mt-0.5">Fastest matching</p>
+        {isNegotiable ? (
+          /* SHOW ONLY NEGOTIATE PRICE OPTION when isNegotiable is true */
+          <div>
+            <div className="w-full flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border border-primary bg-primary/5">
+              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-primary fill-primary stroke-card" />
+              <div className="text-left flex-1">
+                <p className="text-foreground font-medium text-xs sm:text-sm">Negotiate Price</p>
+                <p className="text-muted-foreground text-xs mt-0.5">Suggest a different price</p>
+              </div>
+            </div>
+            
+            {/* Negotiation Price Input - ALWAYS SHOW when isNegotiable is true */}
+            <div className="mt-3 sm:mt-4">
+              <label className="text-xs sm:text-sm text-muted-foreground mb-2 block">
+                Your Offer (₹)
+              </label>
+              <input
+                type="text"
+                value={negotiatedPrice}
+                onChange={(e) => handleNegotiatedPriceChange(e.target.value)}
+                disabled={isSubmitting}
+                className="w-full px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg border border-border bg-background text-foreground text-xs sm:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                placeholder="Enter your offer"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Original price: ₹{price.toLocaleString()}
+              </p>
+            </div>
           </div>
-        </button>
-
-        <button
-          onClick={() => setSelectedOption("negotiate")}
-          disabled={!isNegotiable || isSubmitting}
-          className={`w-full flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border transition-all ${
-            selectedOption === "negotiate"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-muted-foreground/30 disabled:opacity-50 disabled:cursor-not-allowed"
-          }`}
-        >
-          {selectedOption === "negotiate" ? (
-            <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-primary fill-primary stroke-card" />
-          ) : (
-            <Circle className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
-          )}
-          <div className="text-left flex-1">
-            <p className="text-foreground font-medium text-xs sm:text-sm">Negotiate Price</p>
-            <p className="text-muted-foreground text-xs mt-0.5">
-              {isNegotiable ? "Suggest a different price" : "Price is fixed"}
-            </p>
-          </div>
-        </button>
-
-        {/* Negotiation Price Input */}
-        {selectedOption === "negotiate" && isNegotiable && (
-          <div className="pl-10 sm:pl-12 mt-2">
-            <label className="text-xs sm:text-sm text-muted-foreground mb-2 block">
-              Your Offer (₹)
-            </label>
-            <input
-              type="text"
-              value={negotiatedPrice}
-              onChange={(e) => handleNegotiatedPriceChange(e.target.value)}
-              disabled={isSubmitting}
-              className="w-full px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg border border-border bg-background text-foreground text-xs sm:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-              placeholder="Enter your offer"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Original price: ₹{price.toLocaleString()}
-            </p>
+        ) : (
+          /* SHOW ONLY SAME PRICE OPTION when isNegotiable is false */
+          <div>
+            <div className="w-full flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-lg border border-primary bg-primary/5">
+              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-primary fill-primary stroke-card" />
+              <div className="text-left flex-1">
+                <p className="text-foreground font-medium text-xs sm:text-sm">Request at same price</p>
+                <p className="text-muted-foreground text-xs mt-0.5">Fastest matching</p>
+              </div>
+            </div>
+            {/* REMOVED: Remarks section from non-negotiable option */}
           </div>
         )}
       </div>
 
-      {/* Remarks Input */}
-      <div className="mt-3 sm:mt-4">
-        <label className="text-xs sm:text-sm text-muted-foreground mb-2 block">Remarks (Optional)</label>
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Add remarks for the driver"
-            value={remarks}
-            onChange={(e) => setRemarks(e.target.value)}
-            disabled={isSubmitting}
-            className="w-full px-3 sm:px-4 py-2 sm:py-3 rounded-lg border border-border bg-background text-foreground text-xs sm:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-          />
-          <button className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-            <svg width="16" height="16" className="sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 6h16M4 12h16M4 18h10" />
-            </svg>
-          </button>
+      {/* FIXED: Only show remarks input when isNegotiable is true */}
+      {isNegotiable && (
+        <div className="mt-3 sm:mt-4">
+          <label className="text-xs sm:text-sm text-muted-foreground mb-2 block">Remarks (Optional)</label>
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Add remarks for the driver"
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+              disabled={isSubmitting}
+              className="w-full px-3 sm:px-4 py-2 sm:py-3 rounded-lg border border-border bg-background text-foreground text-xs sm:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+            />
+            <button className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <svg width="16" height="16" className="sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 6h16M4 12h16M4 18h10" />
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Submit Button */}
       <button
@@ -344,7 +332,9 @@ const ConfirmRequestPanel = ({
             <span className="text-xs sm:text-sm">Processing...</span>
           </>
         ) : (
-          <span className="text-xs sm:text-sm">Confirm Request</span>
+          <span className="text-xs sm:text-sm">
+            {isNegotiable ? "Send Negotiation Request" : "Send Request"}
+          </span>
         )}
       </button>
     </div>
