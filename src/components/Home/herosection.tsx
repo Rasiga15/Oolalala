@@ -322,7 +322,7 @@ export const HeroSection = () => {
     
     if (!isAuthenticated) {
       setError('Please login to search for rides');
-      navigate('/login');
+      navigate('/auth/login');
       return;
     }
     
@@ -360,7 +360,7 @@ export const HeroSection = () => {
       
       if (!token) {
         setError('Please login to search for rides');
-        navigate('/login');
+        navigate('/auth/login');
         return;
       }
       
@@ -459,7 +459,7 @@ export const HeroSection = () => {
       } else if (response.status === 401) {
         setError('Your session has expired. Please login again.');
         localStorage.removeItem('token');
-        navigate('/login');
+        navigate('/auth/login');
       } else if (response.status === 404) {
         setError('No rides found for your search criteria.');
       } else {
@@ -481,7 +481,7 @@ export const HeroSection = () => {
           }
         } else if (err.response.status === 401) {
           setError('Authentication failed. Please login again.');
-          navigate('/login');
+          navigate('/auth/login');
         } else {
           setError(err.response.data?.message || `Server error: ${err.response.status}`);
         }
@@ -497,7 +497,7 @@ export const HeroSection = () => {
   
   const handleFindRideClick = () => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/auth/login');
       return;
     }
     navigate('/offer-ride1');

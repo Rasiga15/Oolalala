@@ -52,7 +52,7 @@ const NotificationsPage: React.FC = () => {
           description: "Please login to view notifications",
           variant: "destructive"
         });
-        navigate('/login');
+        navigate('/auth/login');
         return;
       }
 
