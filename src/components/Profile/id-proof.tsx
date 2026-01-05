@@ -102,7 +102,7 @@ const IDProof: React.FC = () => {
       if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
         toast.error('Session expired. Please login again.');
         logout();
-        navigate('/login');
+        navigate('/auth/login');
       }
     } finally {
       setLoading(false);

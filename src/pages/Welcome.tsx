@@ -282,7 +282,7 @@ export const Welcome = () => {
                   className="w-full py-4 text-lg font-semibold bg-gradient-to-r from-[#21409A] to-[#3A5FCD] 
                            hover:from-[#1A3480] hover:to-[#2A4AB5] border-0
                            transition-all duration-300 rounded-2xl shadow-lg hover:shadow-xl"
-                  onClick={() => navigate("/login")}
+                  onClick={() => navigate("/auth/login")}
                 >
                   <span className="text-white flex items-center justify-center">
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -36,7 +36,7 @@ export function MyRidesPanel() {
   useEffect(() => {
     if (!isAuthenticated()) {
       toast.error("Please login to view your rides");
-      navigate("/login");
+      navigate("/auth/login");
       return;
     }
     fetchRides();
@@ -63,7 +63,7 @@ export function MyRidesPanel() {
       setTotalItems(res.totalItems);
     } catch (err: any) {
       toast.error(err.message || "Failed to fetch rides");
-      if (err.message?.includes("token")) navigate("/login");
+      if (err.message?.includes("token")) navigate("/auth/login");
     } finally {
       setLoading(false);
     }

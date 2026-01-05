@@ -390,7 +390,7 @@ const DriverManagement: React.FC = () => {
       
       if (!isAuthenticated || !authToken) {
         toast.error('Please login as a partner first');
-        navigate('/login');
+        navigate('/auth/login');
       }
     };
     
@@ -731,7 +731,7 @@ const DriverManagement: React.FC = () => {
     const authToken = localStorage.getItem('authToken');
     if (!authToken) {
       toast.error('Please login as a partner first');
-      navigate('/login');
+      navigate('/auth/login');
       return;
     }
 
