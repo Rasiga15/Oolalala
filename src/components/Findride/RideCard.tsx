@@ -17,7 +17,7 @@ interface RideCardProps {
   price: number;
   is_negotiable: boolean;
   onRequest: () => void;
-  time_of_day?: 'day' | 'night'; // From API response
+  time_of_day?: 'day' | 'night';
 }
 
 const RideCard = ({
@@ -37,35 +37,29 @@ const RideCard = ({
   price,
   is_negotiable,
   onRequest,
-  time_of_day, // API's time_of_day value
+  time_of_day,
 }: RideCardProps) => {
   
-  // FIX: Fix profile image URL
   const getProfileImageUrl = () => {
     if (!driverImage) return '';
     
-    // If it's already a full URL, return as is
     if (driverImage.startsWith('http://') || driverImage.startsWith('https://')) {
       return driverImage;
     }
     
-    // If it starts with /uploads/, prepend the base URL
     if (driverImage.startsWith('/uploads/')) {
       return `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}${driverImage}`;
     }
     
-    // If it's a relative path, return as is (browser will handle it)
     return driverImage;
   };
 
-  // FIX: Use API's time_of_day directly, no calculation needed
   const getDisplayTimeOfDay = (): 'day' | 'night' => {
-    // Use API's time_of_day value if available
     if (time_of_day) {
       return time_of_day.toLowerCase() === 'night' ? 'night' : 'day';
     }
     
-    return 'day'; // Default to day
+    return 'day';
   };
 
   const displayTimeOfDay = getDisplayTimeOfDay();
@@ -82,7 +76,7 @@ const RideCard = ({
             <span className="truncate max-w-[120px] sm:max-w-[200px]">{to}</span>
           </div>
           
-          {/* Time of Day Badge - CORRECTED */}
+          {/* Time of Day Badge */}
           <div className="mb-4">
             <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold ${
               displayTimeOfDay === 'day' 
@@ -131,7 +125,7 @@ const RideCard = ({
             )}
           </div>
           
-          {/* Driver Information - FIXED IMAGE URL */}
+          {/* Driver Information */}
           <div className="flex items-center gap-3 mt-4 pt-4 border-t border-gray-100">
             <div className="relative">
               {profileImageUrl ? (
@@ -140,7 +134,6 @@ const RideCard = ({
                   alt={driverName}
                   className="w-10 h-10 rounded-full object-cover border-2 border-blue-100"
                   onError={(e) => {
-                    // If image fails to load, show fallback
                     e.currentTarget.style.display = 'none';
                     const parent = e.currentTarget.parentElement;
                     if (parent) {
@@ -179,7 +172,7 @@ const RideCard = ({
             </div>
           </div>
           
-          {/* Remarks */}
+          {/* Remarks - Shows preferences */}
           {remarks && remarks !== 'No special remarks' && remarks.trim() !== '' && (
             <div className="mt-3 pt-3 border-t border-gray-100">
               <p className="text-xs text-gray-500 mb-1">Preferences:</p>
@@ -197,7 +190,7 @@ const RideCard = ({
             <p className="text-xs text-gray-500 mt-0.5">per seat</p>
           </div>
           
-          {/* Request Button - FIXED COLOR: #21409A */}
+          {/* Request Button */}
           <button
             onClick={onRequest}
             disabled={available_seats === 0}

@@ -317,7 +317,7 @@ const NotificationsPage: React.FC = () => {
           navigate('/wallet');
           break;
         case 'trip_completed':
-          navigate('/trips');
+          navigate('/trip-rating');
           break;
         default:
           // If no booking ID but we have notification, try to navigate to general booking page

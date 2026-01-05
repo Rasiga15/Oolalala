@@ -1,4 +1,4 @@
-// src/pages/offer-ride/OfferRide4.tsx - FIXED WITH SEPARATE MAIN FARE
+// src/pages/offer-ride/OfferRide4.tsx - FIXED WITH COMPLETE PAYLOAD
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, CheckCircle, AlertCircle, IndianRupee, Car, Loader2, Plus, Minus, Navigation, Info, User, Lock } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -111,10 +111,20 @@ const OfferRide4: React.FC = () => {
           segmentDistance = 0.1;
         }
         
+        // Calculate duration (estimate 1 hour per 60 km)
+        const estimatedDurationHours = segmentDistance / 60;
+        const durationHours = Math.floor(estimatedDurationHours);
+        const durationMinutes = Math.round((estimatedDurationHours - durationHours) * 60);
+        const duration = durationHours > 0 ? 
+          `${durationHours}h ${durationMinutes}m` : 
+          `${durationMinutes}m`;
+        
         combinations.push({
           from_stop_order: i + 1,
           to_stop_order: j + 1,
-          fare: fare
+          fare: Math.round(fare),
+          total_distance_km: Math.round(segmentDistance * 10) / 10, // Round to 1 decimal
+          duration: duration
         });
       }
     }
@@ -143,15 +153,17 @@ const OfferRide4: React.FC = () => {
       let payload: any;
 
       if (isFullCar) {
-        // Full car payload - CORRECTED: No driver_id in payload
+        // Full car payload
         payload = {
           origin: {
             address: origin?.address || origin?.name || 'Origin',
-            coordinates: [origin?.lng || 0, origin?.lat || 0] // [longitude, latitude]
+            coordinates: [origin?.lng || 0, origin?.lat || 0], // [longitude, latitude]
+            name: origin?.name || origin?.address || 'Origin'
           },
           destination: {
             address: destination?.address || destination?.name || 'Destination',
-            coordinates: [destination?.lng || 0, destination?.lat || 0]
+            coordinates: [destination?.lng || 0, destination?.lat || 0],
+            name: destination?.name || destination?.address || 'Destination'
           },
           vehicle_id: rideData.selectedVehicle.id,
           seat_quantity: rideData.seats || 1,
@@ -162,20 +174,45 @@ const OfferRide4: React.FC = () => {
           isNegotiable: rideData.isNegotiable || false,
           is_full_car: true,
           status: "published",
-          total_distance: rideData.totalDistance || 0
+          total_distance: rideData.totalDistance || 0,
+          total_duration: calculateTotalDuration(),
+          // Add preferences from rideData
+          accessibility: rideData.preferences?.accessibility || [],
+          communication: rideData.preferences?.communication || [],
+          general: rideData.preferences?.general || [],
+          ride_comfort: rideData.preferences?.ride_comfort || []
         };
 
         console.log('Full car payload:', payload);
       } else {
-        // Shared ride payload - CORRECTED: No driver_id in payload
+        // Shared ride payload
         const allStops = [origin, ...stops, destination];
-        const stopObjects = allStops.map((stop: any, index: number) => ({
-          stop_name: stop?.name || stop?.address || `Stop ${index + 1}`,
-          latitude: stop?.lat || 0,
-          longitude: stop?.lng || 0,
-          address: stop?.address || stop?.name || '',
-          total_duration: "0" // Required field from API example
-        }));
+        
+        // Create stops array with cumulative duration
+        const stopObjects = allStops.map((stop: any, index: number) => {
+          // Calculate cumulative distance and duration to this stop
+          let cumulativeDistance = 0;
+          let cumulativeDuration = 0;
+          
+          for (let i = 0; i < index; i++) {
+            cumulativeDistance += rideData.routeSegments?.[i]?.distance || 0;
+            cumulativeDuration += (rideData.routeSegments?.[i]?.distance || 0) / 60; // Hours
+          }
+          
+          const hours = Math.floor(cumulativeDuration);
+          const minutes = Math.round((cumulativeDuration - hours) * 60);
+          const total_duration = hours > 0 ? 
+            `${hours}h ${minutes}m` : 
+            `${minutes}m`;
+          
+          return {
+            stop_name: stop?.name || stop?.address || `Stop ${index + 1}`,
+            latitude: stop?.lat || 0,
+            longitude: stop?.lng || 0,
+            total_duration: total_duration,
+            address: stop?.address || stop?.name || ''
+          };
+        });
 
         // Generate ALL fare combinations with fixed main fare
         const fareCombinations = generateAllFareCombinations(allStops, segmentFares);
@@ -183,11 +220,13 @@ const OfferRide4: React.FC = () => {
         payload = {
           origin: {
             address: origin?.address || origin?.name || 'Origin',
-            coordinates: [origin?.lng || 0, origin?.lat || 0]
+            coordinates: [origin?.lng || 0, origin?.lat || 0],
+            name: origin?.name || origin?.address || 'Origin'
           },
           destination: {
             address: destination?.address || destination?.name || 'Destination',
-            coordinates: [destination?.lng || 0, destination?.lat || 0]
+            coordinates: [destination?.lng || 0, destination?.lat || 0],
+            name: destination?.name || destination?.address || 'Destination'
           },
           vehicle_id: rideData.selectedVehicle.id,
           seat_quantity: rideData.seats || 1,
@@ -199,6 +238,12 @@ const OfferRide4: React.FC = () => {
           is_full_car: false,
           status: "published",
           total_distance: rideData.totalDistance || 0,
+          total_duration: calculateTotalDuration(),
+          // Add preferences from rideData
+          accessibility: rideData.preferences?.accessibility || [],
+          communication: rideData.preferences?.communication || [],
+          general: rideData.preferences?.general || [],
+          ride_comfort: rideData.preferences?.ride_comfort || [],
           stops: stopObjects,
           fares: fareCombinations
         };
@@ -234,6 +279,14 @@ const OfferRide4: React.FC = () => {
     const d = new Date(rideData.date);
     d.setHours(h, m, 0, 0);
     return d.toISOString().replace('Z', '');
+  };
+
+  const calculateTotalDuration = () => {
+    if (!rideData?.totalDistance) return '0h 0m';
+    const totalHours = rideData.totalDistance / 60;
+    const hours = Math.floor(totalHours);
+    const minutes = Math.round((totalHours - hours) * 60);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   };
 
   const handleBack = () => navigate(-1);
@@ -314,12 +367,6 @@ const OfferRide4: React.FC = () => {
         setTimeout(() => setPriceAdjustmentMessage(''), 4000);
       }
     }
-  };
-
-  // Function to reset main fare based on segment adjustments
-  const updateMainFare = (newMainFare: number) => {
-    setMainFare(newMainFare);
-    setTotalFare(newMainFare);
   };
 
   if (!rideData) return null;
@@ -514,6 +561,66 @@ const OfferRide4: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Preferences Section */}
+            {rideData.preferences && (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded">
+                <div className="text-xs font-medium mb-2 text-blue-700">Ride Preferences</div>
+                <div className="space-y-2 text-xs">
+                  {rideData.preferences.accessibility && rideData.preferences.accessibility.length > 0 && (
+                    <div>
+                      <div className="text-[10px] text-blue-600 mb-1">Accessibility:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {rideData.preferences.accessibility.map((pref: any) => (
+                          <span key={pref.id} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                            {pref.text}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {rideData.preferences.communication && rideData.preferences.communication.length > 0 && (
+                    <div>
+                      <div className="text-[10px] text-blue-600 mb-1">Communication:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {rideData.preferences.communication.map((pref: any) => (
+                          <span key={pref.id} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                            {pref.text}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {rideData.preferences.general && rideData.preferences.general.length > 0 && (
+                    <div>
+                      <div className="text-[10px] text-blue-600 mb-1">General:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {rideData.preferences.general.map((pref: any) => (
+                          <span key={pref.id} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                            {pref.text}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {rideData.preferences.ride_comfort && rideData.preferences.ride_comfort.length > 0 && (
+                    <div>
+                      <div className="text-[10px] text-blue-600 mb-1">Ride Comfort:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {rideData.preferences.ride_comfort.map((pref: any) => (
+                          <span key={pref.id} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                            {pref.text}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right: Fare Adjustment */}

@@ -92,7 +92,28 @@ export interface MyBookingsResponse {
   bookings: Booking[];
 }
 
-const apiRequest = async (endpoint: string, method: string, params?: Record<string, any>, requiresAuth = true) => {
+export interface VerifyPickupRequest {
+  pickup_otp: string;
+  started_lat: number;
+  started_lng: number;
+}
+
+export interface VerifyPickupResponse {
+  message: string;
+  dropOtp: string;
+}
+
+export interface VerifyDropRequest {
+  drop_otp: string;
+  completed_lat: number;
+  completed_lng: number;
+}
+
+export interface VerifyDropResponse {
+  message: string;
+}
+
+const apiRequest = async (endpoint: string, method: string, body?: any, params?: Record<string, any>, requiresAuth = true) => {
   // Construct URL with query parameters
   let url = `${BASE_URL}${endpoint}`;
   
@@ -128,11 +149,12 @@ const apiRequest = async (endpoint: string, method: string, params?: Record<stri
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  console.log(`API ${method} ${url}`);
+  console.log(`API ${method} ${url}`, body);
 
   const response = await fetch(url, {
     method,
     headers,
+    body: body ? JSON.stringify(body) : undefined,
   });
 
   console.log(`API Response ${endpoint}:`, response.status, response.statusText);
@@ -196,7 +218,7 @@ export const getBookingsForRide = async (
       params.status = status;
     }
     
-    const response = await apiRequest('/api/bookings/my-bookings', 'GET', params, true);
+    const response = await apiRequest('/api/bookings/my-bookings', 'GET', undefined, params, true);
     
     return response;
   } catch (error: any) {
@@ -228,7 +250,7 @@ export const getMyBookings = async (
       params.ride_id = rideId;
     }
     
-    return await apiRequest('/api/bookings/my-bookings', 'GET', params, true);
+    return await apiRequest('/api/bookings/my-bookings', 'GET', undefined, params, true);
   } catch (error: any) {
     console.error('Error fetching my bookings:', error);
     throw error;
@@ -253,6 +275,32 @@ export const getConfirmedBookings = async (
   return getMyBookings(page, limit, 'confirmed', true, rideId);
 };
 
+// Verify Pickup OTP
+export const verifyPickupOtp = async (
+  bookingId: number,
+  data: VerifyPickupRequest
+): Promise<VerifyPickupResponse> => {
+  try {
+    return await apiRequest(`/api/bookings/${bookingId}/verify-pickup`, 'POST', data, undefined, true);
+  } catch (error: any) {
+    console.error('Error verifying pickup OTP:', error);
+    throw error;
+  }
+};
+
+// Verify Drop OTP
+export const verifyDropOtp = async (
+  bookingId: number,
+  data: VerifyDropRequest
+): Promise<VerifyDropResponse> => {
+  try {
+    return await apiRequest(`/api/bookings/${bookingId}/verify-drop`, 'POST', data, undefined, true);
+  } catch (error: any) {
+    console.error('Error verifying drop OTP:', error);
+    throw error;
+  }
+};
+
 // Format booking status for display
 export const formatBookingStatus = (status: string): string => {
   const statusMap: Record<string, string> = {
@@ -261,7 +309,8 @@ export const formatBookingStatus = (status: string): string => {
     'confirmed': 'Confirmed',
     'auto_declined': 'Auto Declined',
     'completed': 'Completed',
-    'cancelled': 'Cancelled'
+    'cancelled': 'Cancelled',
+    'ongoing': 'Ongoing'
   };
   
   return statusMap[status] || status.replace('_', ' ');

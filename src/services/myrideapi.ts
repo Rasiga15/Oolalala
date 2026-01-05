@@ -172,3 +172,26 @@ export const getRideOfferDetails = async (
 
   return response.data;
 };
+
+export const cancelRideOffer = async (rideId: number): Promise<{ message: string }> => {
+  const token = getTokenFromStorage();
+  
+  if (!token) {
+    throw new Error('No authentication token found. Please login.');
+  }
+
+  const response = await axios.post(
+    `${BASE_URL}/api/rides/offer/${rideId}/cancel`,
+    {},
+    {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000
+    }
+  );
+
+  return response.data;
+};

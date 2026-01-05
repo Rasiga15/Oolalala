@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation } from 'react-icons/fi';
 import DatePicker from 'react-datepicker';
@@ -10,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import carImage from '../../assets/mainhome.svg';
 import { BASE_URL } from '@/config/api';
+import { fetchPreferences } from '../../services/settingsApi'; // Import fetchPreferences
 
 // Interface for place object
 interface Place {
@@ -22,6 +21,13 @@ interface Place {
     latitude: number;
     longitude: number;
   };
+}
+
+// Interface for preference
+interface Preference {
+  id: string;
+  name: string;
+  description?: string;
 }
 
 export const HeroSection = () => {
@@ -37,7 +43,11 @@ export const HeroSection = () => {
   const [toPlace, setToPlace] = useState<Place | null>(null);
   const [travelDate, setTravelDate] = useState<Date | null>(new Date());
   const [seats, setSeats] = useState(1);
-  const [preferences, setPreferences] = useState<string[]>([]);
+  const [selectedPreferences, setSelectedPreferences] = useState<string[]>([]);
+  
+  // State for available preferences from API
+  const [availablePreferences, setAvailablePreferences] = useState<Preference[]>([]);
+  const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
   
   // State for autocomplete suggestions
   const [fromSuggestions, setFromSuggestions] = useState<Place[]>([]);
@@ -55,6 +65,34 @@ export const HeroSection = () => {
   const toRef = useRef<HTMLDivElement>(null);
   const fromInputRef = useRef<HTMLInputElement>(null);
   
+  // Fetch preferences on component mount
+  useEffect(() => {
+    const loadPreferences = async () => {
+      setIsLoadingPreferences(true);
+      try {
+        const preferences = await fetchPreferences();
+        // Convert string array to Preference objects
+        const preferenceObjects = preferences.map((pref, index) => ({
+          id: `pref_${index}`,
+          name: pref
+        }));
+        setAvailablePreferences(preferenceObjects);
+      } catch (error) {
+        console.error('Error loading preferences:', error);
+        // Fallback to default preferences
+        setAvailablePreferences([
+          { id: 'pref_1', name: 'Ladies only' },
+          { id: 'pref_2', name: 'Senior Citizen' },
+          { id: 'pref_3', name: 'Kids friendly' }
+        ]);
+      } finally {
+        setIsLoadingPreferences(false);
+      }
+    };
+    
+    loadPreferences();
+  }, []);
+  
   // Scroll to search form when location state has scrollToSearchForm
   useEffect(() => {
     if (location.state?.scrollToSearchForm && searchFormRef.current) {
@@ -65,14 +103,13 @@ export const HeroSection = () => {
         // Smooth scroll to form
         searchFormRef.current?.scrollIntoView({ 
           behavior: 'smooth', 
-          block: 'center' // Changed from 'start' to 'center' for better visibility
+          block: 'center'
         });
         
         // Focus on "Pickup" input after scroll animation completes
         setTimeout(() => {
           if (fromInputRef.current) {
             fromInputRef.current.focus();
-            // Move cursor to end of text
             setTimeout(() => {
               fromInputRef.current?.setSelectionRange(
                 fromInputRef.current.value.length, 
@@ -80,7 +117,7 @@ export const HeroSection = () => {
               );
             }, 10);
           }
-        }, 500); // Increased delay to ensure scroll completes
+        }, 500);
       }, 150);
       
       // Clear the location state
@@ -230,11 +267,11 @@ export const HeroSection = () => {
   };
   
   // Handle preferences toggle
-  const handlePreferenceToggle = (pref: string, label: string) => {
-    setPreferences(prev => 
-      prev.includes(pref) 
-        ? prev.filter(p => p !== pref)
-        : [...prev, pref]
+  const handlePreferenceToggle = (preferenceName: string) => {
+    setSelectedPreferences(prev => 
+      prev.includes(preferenceName) 
+        ? prev.filter(p => p !== preferenceName)
+        : [...prev, preferenceName]
     );
   };
   
@@ -242,7 +279,7 @@ export const HeroSection = () => {
   const isValidCoordinate = (coord: number | undefined): boolean => {
     if (coord === undefined || coord === null) return false;
     if (coord === 0) return false;
-    if (Math.abs(coord) > 180) return false; // Valid latitude/longitude range
+    if (Math.abs(coord) > 180) return false;
     return true;
   };
   
@@ -267,12 +304,18 @@ export const HeroSection = () => {
   // Get short location name
   const getShortLocation = (location: string): string => {
     if (!location) return '';
-    // Take first part before comma or first 20 characters
     const shortName = location.split(',')[0].trim();
     return shortName.length > 30 ? shortName.substring(0, 30) : shortName;
   };
   
-  // Search rides API call - WITHOUT TIME_OF_DAY parameter
+  // Map preference names to IDs for API
+  const getPreferenceIds = (prefNames: string[]): number[] => {
+    // This should map preference names to IDs based on your API
+    // For now, return placeholder IDs
+    return prefNames.map((pref, index) => index + 1);
+  };
+  
+  // Search rides API call
   const searchRides = async () => {
     // Clear previous errors
     setError('');
@@ -324,7 +367,7 @@ export const HeroSection = () => {
       // Format date to YYYY-MM-DD
       const formattedDate = travelDate.toISOString().split('T')[0];
       
-      // Build query parameters WITHOUT time_of_day
+      // Build query parameters
       const params = new URLSearchParams();
       
       // Required parameters
@@ -353,12 +396,13 @@ export const HeroSection = () => {
         params.append('to_short_location', toShort);
       }
       
-      // Add preferences if any
-      if (preferences.length > 0) {
-        params.append('preferences', preferences.join(','));
+      // Add preferences if any - send as comma-separated string
+      if (selectedPreferences.length > 0) {
+        params.append('preferences', selectedPreferences.join(','));
       }
       
       console.log('API Request URL:', `${BASE_URL}/api/rides/search?${params.toString()}`);
+      console.log('Selected Preferences:', selectedPreferences);
       
       const response = await axios.get(`${BASE_URL}/api/rides/search`, {
         params: Object.fromEntries(params),
@@ -369,7 +413,7 @@ export const HeroSection = () => {
         },
         timeout: 15000,
         validateStatus: function (status) {
-          return status < 500; // Resolve only if status code is less than 500
+          return status < 500;
         }
       });
       
@@ -385,7 +429,7 @@ export const HeroSection = () => {
             to: toLocation,
             date: travelDate,
             seats,
-            preferences
+            preferences: selectedPreferences
           }));
           
           // Save coordinates for creating ride request
@@ -402,14 +446,14 @@ export const HeroSection = () => {
             state: { 
               searchResults: response.data,
               searchParams: Object.fromEntries(params),
-              searchCoordinates: searchCoordinates
+              searchCoordinates: searchCoordinates,
+              preferences: selectedPreferences
             } 
           });
         } else {
           setError('No rides found for your search criteria.');
         }
       } else if (response.status === 400) {
-        // Log the actual error response from server
         console.error('Bad Request Details:', response.data);
         setError(response.data?.message || 'Invalid search parameters. Please check your inputs.');
       } else if (response.status === 401) {
@@ -425,13 +469,11 @@ export const HeroSection = () => {
       console.error('Error searching rides:', err);
       
       if (err.response) {
-        // Server responded with error
         if (err.response.status === 400) {
           const errorData = err.response.data;
           console.error('400 Error Details:', errorData);
           
           if (errorData.errors) {
-            // Handle validation errors from server
             const errorMessages = Object.values(errorData.errors).flat().join(', ');
             setError(`Validation error: ${errorMessages}`);
           } else {
@@ -444,10 +486,8 @@ export const HeroSection = () => {
           setError(err.response.data?.message || `Server error: ${err.response.status}`);
         }
       } else if (err.request) {
-        // Request made but no response
         setError('Network error. Please check your internet connection and try again.');
       } else {
-        // Other errors
         setError('Failed to search rides. Please try again.');
       }
     } finally {
@@ -515,11 +555,11 @@ export const HeroSection = () => {
           </div>
         </div>
 
-        {/* SEARCH FORM - Perfect 5 Columns Layout (removed day/night column) */}
+        {/* SEARCH FORM */}
         <div className="relative mt-6 lg:mt-8" ref={searchFormRef}>
           <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-3 sm:p-4 max-w-7xl mx-auto relative z-20">
             
-            {/* MAIN FORM ROW - 5 EQUAL COLUMNS (now without day/night) */}
+            {/* MAIN FORM ROW */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 items-center">
               
               {/* 1. FROM */}
@@ -702,57 +742,35 @@ export const HeroSection = () => {
 
             {/* Filters - Preferences */}
             <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-3 sm:mt-4">
-              <button 
-                onClick={() => handlePreferenceToggle('ladies_only', 'Ladies only')}
-                className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
-                  preferences.includes('ladies_only') 
-                    ? 'bg-pink-50 border-pink-300 text-pink-700'
-                    : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
-                }`}
-              >
-                👩 Ladies only
-                {preferences.includes('ladies_only') && <FiX size={8} className="sm:size-[10px]" />}
-              </button>
-              <button 
-                onClick={() => handlePreferenceToggle('senior_citizen', 'Senior Citizen')}
-                className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
-                  preferences.includes('senior_citizen') 
-                    ? 'bg-orange-50 border-orange-300 text-orange-700'
-                    : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
-                }`}
-              >
-                🧓 Senior Citizen
-                {preferences.includes('senior_citizen') && <FiX size={8} className="sm:size-[10px]" />}
-              </button>
-              <button 
-                onClick={() => handlePreferenceToggle('kids_friendly', 'Kids friendly')}
-                className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
-                  preferences.includes('kids_friendly') 
-                    ? 'bg-blue-50 border-blue-300 text-blue-700'
-                    : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
-                }`}
-              >
-                👶 Kids friendly
-                {preferences.includes('kids_friendly') && <FiX size={8} className="sm:size-[10px]" />}
-              </button>
+              {isLoadingPreferences ? (
+                <div className="text-xs text-gray-500">Loading preferences...</div>
+              ) : (
+                availablePreferences.map((preference) => (
+                  <button 
+                    key={preference.id}
+                    onClick={() => handlePreferenceToggle(preference.name)}
+                    className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+                      selectedPreferences.includes(preference.name) 
+                        ? 'bg-blue-50 border-blue-300 text-blue-700'
+                        : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
+                    }`}
+                  >
+                    {getPreferenceEmoji(preference.name)} {preference.name}
+                    {selectedPreferences.includes(preference.name) && <FiX size={8} className="sm:size-[10px]" />}
+                  </button>
+                ))
+              )}
             </div>
             
             {/* Selected Preferences */}
-            {preferences.length > 0 && (
+            {selectedPreferences.length > 0 && (
               <div className="mt-2 sm:mt-3 text-xs text-gray-500 flex items-center gap-1 flex-wrap">
                 <span className="font-medium">Selected:</span>
-                {preferences.map(pref => {
-                  const labels: Record<string, string> = {
-                    'ladies_only': 'Ladies only',
-                    'senior_citizen': 'Senior Citizen',
-                    'kids_friendly': 'Kids friendly'
-                  };
-                  return (
-                    <span key={pref} className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">
-                      {labels[pref] || pref}
-                    </span>
-                  );
-                })}
+                {selectedPreferences.map(pref => (
+                  <span key={pref} className="bg-blue-100 px-1.5 py-0.5 rounded text-xs text-blue-700">
+                    {pref}
+                  </span>
+                ))}
               </div>
             )}
             
@@ -782,6 +800,26 @@ export const HeroSection = () => {
       </div>
     </section>
   );
+};
+
+// Helper function to get emoji for preference
+const getPreferenceEmoji = (preference: string): string => {
+  const emojiMap: Record<string, string> = {
+    'Ladies only': '👩',
+    'Senior Citizen': '🧓',
+    'Kids friendly': '👶',
+    'Kids Only': '👧👦',
+    'Senior Citizens': '👵👴',
+    'Students only': '🎓',
+    'Professionals only': '💼',
+    'No Smoking': '🚭',
+    'No Pets': '🚫🐾',
+    'AC Preferred': '❄️',
+    'Music Allowed': '🎵',
+    'Quiet Ride': '🤫'
+  };
+  
+  return emojiMap[preference] || '✨';
 };
 
 export default HeroSection;

@@ -3,7 +3,7 @@ import { FiSearch, FiUser, FiMenu, FiX, FiLogOut, FiBell, FiCalendar } from 'rea
 import { MdDirectionsCar, MdOutlineCommute } from 'react-icons/md';
 import { FaWallet } from 'react-icons/fa';
 import rectangleLogo from '../../assets/Rectangle.svg';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { BASE_URL } from '@/config/api';
 import axios from 'axios';
@@ -14,7 +14,7 @@ const getAuthToken = (): string => {
                 localStorage.getItem('accessToken') || 
                 sessionStorage.getItem('authToken') || 
                 sessionStorage.getItem('accessToken') || 
-                '';
+  '';
   
   if (!token) {
     console.warn('Authentication token not found');
@@ -77,7 +77,40 @@ export const Navbar: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout, isAuthenticated } = useAuth();
+
+  // Check active link
+  const isActiveLink = (path: string, exact: boolean = false) => {
+    if (exact) {
+      return location.pathname === path;
+    }
+    return location.pathname.startsWith(path);
+  };
+
+  // Get nav link class for desktop
+  const getNavLinkClass = (path: string, exact: boolean = false) => {
+    const baseClasses = "flex items-center gap-2 font-medium transition cursor-pointer";
+    const isActive = isActiveLink(path, exact);
+    
+    if (isActive) {
+      return `${baseClasses} text-[#21409A] bg-blue-50 px-3 py-2 rounded-lg`;
+    }
+    
+    return `${baseClasses} text-gray-700 hover:text-[#21409A] hover:bg-gray-50 px-3 py-2 rounded-lg`;
+  };
+
+  // Get nav link class for mobile
+  const getMobileNavLinkClass = (path: string, exact: boolean = false) => {
+    const baseClasses = "flex items-center gap-2 text-gray-700 font-medium w-full text-left py-3 px-4 rounded-lg";
+    const isActive = isActiveLink(path, exact);
+    
+    if (isActive) {
+      return `${baseClasses} text-[#21409A] bg-blue-50`;
+    }
+    
+    return `${baseClasses} hover:bg-gray-50`;
+  };
 
   // Fetch unread notifications count
   const fetchUnreadCount = async () => {
@@ -138,7 +171,7 @@ export const Navbar: React.FC = () => {
     logout();
     setShowLogoutConfirm(false);
     setShowDropdown(false);
-    navigate('/login');
+    navigate('/auth/login');
   };
 
   const toggleDropdown = () => {
@@ -238,11 +271,11 @@ export const Navbar: React.FC = () => {
           </div>
 
           {/* CENTER - NAV LINKS */}
-          <div className="hidden md:flex items-center gap-8">
+          <div className="hidden md:flex items-center gap-1">
             {/* SEARCH RIDE BUTTON - Added to Navbar */}
             <button 
               onClick={handleSearchRideClick}
-              className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
+              className={getNavLinkClass('/', true)}
             >
               <FiSearch size={20} />
               <span>Search Ride</span>
@@ -253,7 +286,7 @@ export const Navbar: React.FC = () => {
                 closeAll();
                 navigate('/offer-ride1');
               }}
-              className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
+              className={getNavLinkClass('/offer-ride')}
             >
               <MdDirectionsCar size={22} />
               <span>Offer Ride</span>
@@ -264,7 +297,7 @@ export const Navbar: React.FC = () => {
                 closeAll();
                 navigate('/my-rides');
               }}
-              className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
+              className={getNavLinkClass('/my-rides')}
             >
               <MdOutlineCommute size={22} />
               <span>My Offers</span>
@@ -272,16 +305,15 @@ export const Navbar: React.FC = () => {
             
             {/* MY BOOKING LINK - Desktop */}
            <button 
-  onClick={() => {
-    closeAll();
-    navigate('/my-bookings');
-  }}
-  className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
->
-  <FiCalendar size={20} />
-  <span>My Booking</span>
-</button>
-
+              onClick={() => {
+                closeAll();
+                navigate('/my-bookings');
+              }}
+              className={getNavLinkClass('/my-bookings')}
+            >
+              <FiCalendar size={20} />
+              <span>My Booking</span>
+            </button>
             
             {/* WALLET LINK - Desktop */}
             <button 
@@ -289,7 +321,7 @@ export const Navbar: React.FC = () => {
                 closeAll();
                 navigate('/wallet');
               }}
-              className="flex items-center gap-2 text-gray-700 font-medium hover:text-[#21409A] transition cursor-pointer"
+              className={getNavLinkClass('/wallet')}
             >
               <FaWallet size={20} />
               <span>Wallet</span>
@@ -369,20 +401,8 @@ export const Navbar: React.FC = () => {
                           <span>Profile</span>
                         </button>
                         
-                        {/* Notification item in dropdown */}
-                        <button 
-                          onClick={handleNavigateToNotifications}
-                          className="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100 flex items-center gap-2 relative"
-                        >
-                          <FiBell size={16} />
-                          <span>Notifications</span>
-                          {unreadCount > 0 && (
-                            <span className="absolute right-3 flex items-center justify-center min-w-[18px] h-[18px] bg-red-500 text-white text-xs font-bold rounded-full px-1">
-                              {unreadCount > 99 ? '99+' : unreadCount}
-                            </span>
-                          )}
-                        </button>
-                        
+                      
+                   
                         <div className="border-t border-gray-100 my-1"></div>
                         <button 
                           onClick={() => {
@@ -428,7 +448,7 @@ export const Navbar: React.FC = () => {
 
         {/* MOBILE MENU */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-gray-200 bg-white px-4 py-4 space-y-4">
+          <div className="md:hidden border-t border-gray-200 bg-white px-4 py-4 space-y-1">
             {isAuthenticated && user && (
               <div className="pb-4 border-b border-gray-100">
                 <div className="flex items-center gap-3">
@@ -471,7 +491,7 @@ export const Navbar: React.FC = () => {
             {/* SEARCH RIDE BUTTON - Mobile */}
             <button 
               onClick={handleSearchRideClick}
-              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
+              className={getMobileNavLinkClass('/', true)}
             >
               <FiSearch size={20} /> Search Ride
             </button>
@@ -481,7 +501,7 @@ export const Navbar: React.FC = () => {
                 closeAll();
                 navigate('/offer-ride1');
               }}
-              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
+              className={getMobileNavLinkClass('/offer-ride')}
             >
               <MdDirectionsCar size={22} /> Offer Ride
             </button>
@@ -491,7 +511,7 @@ export const Navbar: React.FC = () => {
                 closeAll();
                 navigate('/my-rides');
               }}
-              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
+              className={getMobileNavLinkClass('/my-rides')}
             >
               <MdOutlineCommute size={22} /> My Offers
             </button>
@@ -502,9 +522,9 @@ export const Navbar: React.FC = () => {
                 closeAll();
                 navigate('/my-bookings');
               }}
-              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
+              className={getMobileNavLinkClass('/my-bookings')}
             >
-              <FiSearch size={20} /> My Booking
+              <FiCalendar size={20} /> My Booking
             </button>
             
             {/* WALLET LINK - Mobile */}
@@ -513,7 +533,7 @@ export const Navbar: React.FC = () => {
                 closeAll();
                 navigate('/wallet');
               }}
-              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
+              className={getMobileNavLinkClass('/wallet')}
             >
               <FaWallet size={20} /> Wallet
             </button>
@@ -521,7 +541,7 @@ export const Navbar: React.FC = () => {
             {/* NOTIFICATIONS - Mobile with badge */}
             <button 
               onClick={handleNavigateToNotifications}
-              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2 relative"
+              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-3 px-4 hover:bg-gray-50 rounded-lg relative"
             >
               <FiBell size={20} /> Notifications
               {unreadCount > 0 && (
@@ -536,7 +556,7 @@ export const Navbar: React.FC = () => {
                 closeAll();
                 navigate('/profile');
               }}
-              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-2 hover:bg-gray-50 rounded-lg px-2"
+              className="flex items-center gap-2 text-gray-700 font-medium w-full text-left py-3 px-4 hover:bg-gray-50 rounded-lg"
             >
               <FiUser size={20} /> Profile
             </button>
@@ -547,7 +567,7 @@ export const Navbar: React.FC = () => {
                   setShowLogoutConfirm(true);
                   setMobileMenuOpen(false);
                 }}
-                className="flex items-center gap-2 text-red-600 font-medium w-full text-left py-2 hover:bg-red-50 rounded-lg px-2 mt-2"
+                className="flex items-center gap-2 text-red-600 font-medium w-full text-left py-3 px-4 hover:bg-red-50 rounded-lg mt-2"
               >
                 <FiLogOut size={20} /> Logout
               </button>

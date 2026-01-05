@@ -1,5 +1,4 @@
-// ridedetails.tsx
-import { X, Calendar, Clock, Car, MapPin, CheckCircle, AlertCircle } from "lucide-react";
+import { X, Calendar, Clock, Car, MapPin, CheckCircle, AlertCircle, Navigation, Users } from "lucide-react";
 import { RideDetails as RideDetailsType } from "@/services/myrideapi";
 
 // Format date and time
@@ -17,6 +16,16 @@ const formatDateTime = (dateString: string) => {
     hour12: true
   });
   return { formattedDate, formattedTime };
+};
+
+// Format time for stop arrival/departure
+const formatStopTime = (dateString: string) => {
+  const date = new Date(dateString);
+  return date.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
 };
 
 // Get status icon and color
@@ -60,6 +69,25 @@ const getStatusInfo = (status: string) => {
   }
 };
 
+// Component for displaying fare between stops
+const FareDisplay = ({ fares, fromStopId, toStopId }: { fares: any[], fromStopId: number, toStopId: number }) => {
+  const fare = fares.find(f => 
+    (f.from_stop_id === fromStopId && f.to_stop_id === toStopId) ||
+    (f.from_stop_id === fromStopId && !f.to_stop_id && !toStopId)
+  );
+  
+  if (!fare) return null;
+  
+  return (
+    <div className="mt-1 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">Fare: ₹{fare.fare}</span>
+      {fare.total_distance_km && fare.total_distance_km !== "0.00" && (
+        <span className="ml-2">• Distance: {fare.total_distance_km} km</span>
+      )}
+    </div>
+  );
+};
+
 interface RideDetailsProps {
   ride: RideDetailsType | null;
   onClose: () => void;
@@ -76,6 +104,14 @@ export function RideDetails({ ride, onClose }: RideDetailsProps) {
 
   const { formattedDate, formattedTime } = formatDateTime(ride.travel_datetime);
   const statusInfo = getStatusInfo(ride.ride_status);
+
+  // Sort stops by stop_order
+  const sortedStops = [...(ride.stops || [])].sort((a, b) => a.stop_order - b.stop_order);
+
+  // Calculate total distance if available
+  const totalDistance = ride.total_distance || 
+    (sortedStops.length > 1 && sortedStops[sortedStops.length - 1].total_duration !== "0" ? 
+      sortedStops[sortedStops.length - 1].total_duration : null);
 
   return (
     <div className="animate-slide-in-right flex h-full flex-col bg-card relative">
@@ -113,6 +149,12 @@ export function RideDetails({ ride, onClose }: RideDetailsProps) {
               <Clock className="h-4 w-4" />
               <span>{formattedTime}</span>
             </div>
+            {totalDistance && (
+              <div className="flex items-center gap-1.5">
+                <Navigation className="h-4 w-4" />
+                <span>{totalDistance} km</span>
+              </div>
+            )}
           </div>
         </div>
         
@@ -165,37 +207,103 @@ export function RideDetails({ ride, onClose }: RideDetailsProps) {
 
         <div className="border-t my-4" />
 
-        {/* Location Details */}
+        {/* Stops Details */}
         <section className="mb-6">
           <h3 className="text-sm font-semibold text-primary mb-3">
-            Location Details
+            Route Stops ({sortedStops.length})
           </h3>
           <div className="space-y-4">
-            <div>
-              <h4 className="text-sm font-medium text-foreground mb-2">Start Location</h4>
-              <div className="flex items-start gap-2">
-                <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                <div>
-                  <p className="text-sm text-foreground">{ride.start_address}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Lat: {ride.start_lat.toFixed(6)}, Lng: {ride.start_lng.toFixed(6)}
-                  </p>
+            {sortedStops.map((stop, index) => (
+              <div key={stop.stop_id} className="relative">
+                {/* Stop indicator line */}
+                {index < sortedStops.length - 1 && (
+                  <div className="absolute left-[11px] top-6 bottom-0 w-0.5 bg-gray-300"></div>
+                )}
+                
+                <div className="flex gap-3">
+                  {/* Stop number circle */}
+                  <div className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-medium text-white">
+                    {stop.stop_order}
+                  </div>
+                  
+                  {/* Stop details */}
+                  <div className="flex-1">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h4 className="text-sm font-medium text-foreground mb-1">
+                          {stop.stop_name || `Stop ${stop.stop_order}`}
+                        </h4>
+                        <div className="flex items-start gap-1 text-xs text-muted-foreground mb-1">
+                          <MapPin className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                          <p className="flex-1">{stop.address}</p>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            <span>Arrival: {formatStopTime(stop.arrival_datetime)}</span>
+                          </div>
+                          {stop.departure_datetime && (
+                            <div className="flex items-center gap-1">
+                              <span>Departure: {formatStopTime(stop.departure_datetime)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Show fare for this stop to next stop if available */}
+                      {index < sortedStops.length - 1 && (
+                        <div className="text-right">
+                          <FareDisplay 
+                            fares={ride.fares || []} 
+                            fromStopId={stop.stop_id} 
+                            toStopId={sortedStops[index + 1].stop_id} 
+                          />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Show base fare for this stop (if it's the starting point) */}
+                    {stop.stop_order === 1 && ride.base_fare && (
+                      <div className="mt-2 text-xs font-medium text-green-600 bg-green-50 px-2 py-1 rounded inline-block">
+                        Total Fare: ₹{ride.base_fare}
+                      </div>
+                    )}
+                    
+                    {/* Stop duration if available */}
+                    {stop.total_duration && stop.total_duration !== "0" && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Duration: {stop.total_duration} {stop.total_duration.includes(':') ? '' : 'hours'}
+                      </div>
+                    )}
+                    
+                    {/* Coordinates */}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Coordinates: {stop.latitude.toFixed(6)}, {stop.longitude.toFixed(6)}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div>
-              <h4 className="text-sm font-medium text-foreground mb-2">End Location</h4>
-              <div className="flex items-start gap-2">
-                <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                <div>
-                  <p className="text-sm text-foreground">{ride.end_address}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Lat: {ride.end_lat.toFixed(6)}, Lng: {ride.end_lng.toFixed(6)}
-                  </p>
-                </div>
-              </div>
-            </div>
+            ))}
           </div>
+          
+          {/* Total Distance Summary */}
+          {totalDistance && (
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Navigation className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium text-foreground">Total Distance</span>
+                </div>
+                <span className="font-bold text-foreground">{totalDistance} km</span>
+              </div>
+              {ride.total_duration && (
+                <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground">
+                  <span>Estimated Duration</span>
+                  <span>{ride.total_duration}</span>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         <div className="border-t my-4" />
@@ -217,28 +325,53 @@ export function RideDetails({ ride, onClose }: RideDetailsProps) {
                     Model: {ride.vehicle.model}
                   </p>
                 )}
+                {ride.vehicle.brand && (
+                  <p className="text-xs text-muted-foreground">
+                    Brand: {ride.vehicle.brand}
+                  </p>
+                )}
+                {ride.vehicle.seating_capacity && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Users className="h-3 w-3" />
+                    Seats: {ride.vehicle.seating_capacity}
+                  </p>
+                )}
               </div>
             </div>
           </div>
         </section>
 
-        {/* Fare */}
-        {ride.base_fare && (
-          <>
-            <div className="border-t my-4" />
-            <section>
-              <h3 className="text-sm font-semibold text-primary mb-3">
-                Fare Details
-              </h3>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-foreground">Base Fare</span>
-                  <span className="font-bold text-foreground">₹{ride.base_fare}</span>
-                </div>
+        {/* Fare Summary */}
+        <div className="border-t my-4" />
+        <section>
+          <h3 className="text-sm font-semibold text-primary mb-3">
+            Fare Summary
+          </h3>
+          <div className="space-y-3">
+            {/* Base Fare */}
+            {ride.base_fare && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-foreground">Base Fare</span>
+                <span className="font-bold text-foreground">₹{ride.base_fare}</span>
               </div>
-            </section>
-          </>
-        )}
+            )}
+            
+            {/* Individual stop fares */}
+            {ride.fares && ride.fares.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Segment Fares:</p>
+                {ride.fares.map((fare, index) => (
+                  <div key={fare.id} className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">
+                      {index + 1}. Segment {fare.from_stop_id} → {fare.to_stop_id}
+                    </span>
+                    <span className="font-medium text-foreground">₹{fare.fare}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
 
       {/* Created Info */}
@@ -247,6 +380,11 @@ export function RideDetails({ ride, onClose }: RideDetailsProps) {
           Created on {new Date(ride.created_at).toLocaleDateString()} • 
           Created by {ride.ride_created_by}
         </p>
+        {ride.stops && ride.stops.length > 0 && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Route has {ride.stops.length} stops
+          </p>
+        )}
       </div>
     </div>
   );

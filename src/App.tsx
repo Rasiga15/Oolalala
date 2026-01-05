@@ -10,11 +10,11 @@ import { Navbar } from "./components/layout/Navbar";
 import Welcome from "./pages/Welcome";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
-import VerifyLoginOTP from "./pages/VerifyLoginOTP";
+import VerifyLoginOTP from "./components/auth/VerifyLoginOTP";
 import NotFound from "./pages/NotFound";
 import Signup from "./pages/Signup";
-import SetPin from "./pages/SetPin";
-import ForgotPassword from "./pages/ForgotPassword";
+import SetPin from "./components/auth/SetPin";
+import ForgotPassword from "./components/auth/ForgotPassword";
 import FindRide from "./pages/FindRide";
 import Profile from "./pages/Profile";
 import BasicDetails from "./components/Profile/basicdetails";
@@ -35,6 +35,10 @@ import NotificationsPage from "./components/Notification/NotificationPage";
 import RideRequestDetail from "./components/Notification/RideRequestDetail";
 import MyBookings from "./pages/MyBooking";
 import MyRideBookingView from "./components/Myride/myridebookingview";
+import YourTrips from "./components/Starttrip/yourtrip";
+import LoginForm from "./components/auth/LoginForm";
+import SignupForm from "./components/auth/SignupForm";
+import TripRating from "./components/Notification/TripRating";
 
 const queryClient = new QueryClient();
 
@@ -93,11 +97,11 @@ const AppRoutes = () => {
       <Route path="/welcome" element={<Welcome />} />
       
       {/* Public Routes */}
-      <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-      <Route path="/verify-login-otp" element={<PublicRoute><VerifyLoginOTP /></PublicRoute>} />
-      <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
-      <Route path="/set-pin" element={<PublicRoute><SetPin /></PublicRoute>} />
-      <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+      <Route path="/auth/login" element={<PublicRoute><LoginForm /></PublicRoute>} />
+      <Route path="/auth/verify-login-otp" element={<PublicRoute><VerifyLoginOTP /></PublicRoute>} />
+      <Route path="/auth/signup" element={<PublicRoute><SignupForm /></PublicRoute>} />
+      <Route path="/auth/set-pin" element={<PublicRoute><SetPin /></PublicRoute>} />
+      <Route path="/auth/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
       
       {/* Notifications Page - Full page without separate panel component */}
       <Route path="/notifications" element={
@@ -135,6 +139,8 @@ const AppRoutes = () => {
       <Route path="/driver-management" element={<ProtectedRoute><AppLayout><DriverManagement /></AppLayout></ProtectedRoute>} />
       <Route path="/drivers" element={<ProtectedRoute><AppLayout><DriverManagementMainScreen /></AppLayout></ProtectedRoute>} />
       <Route path="/my-rides-booking-view" element={<ProtectedRoute><AppLayout><MyRideBookingView /></AppLayout></ProtectedRoute>} />
+      <Route path="/your-trips" element={<ProtectedRoute><AppLayout><YourTrips /></AppLayout></ProtectedRoute>} />
+       <Route path="/trip-rating" element={<ProtectedRoute><AppLayout><TripRating /></AppLayout></ProtectedRoute>} />
       
       {/* Redirect root to welcome */}
       <Route path="/" element={<Navigate to="/welcome" replace />} />

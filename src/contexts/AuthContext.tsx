@@ -256,7 +256,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Verify OTP and Register - FIXED: Removed gender field
+  // Verify OTP and Register - FIXED: Ensure first_name and last_name are always provided
   const verifyOTPAndRegister = async (
     phone: string, 
     otp: string, 
@@ -266,18 +266,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       console.log('Registering user with:', { phone, otp, userData });
       
-      // Prepare registration data - only include fields that backend accepts
+      // Prepare registration data - ensure first_name and last_name are never null/undefined
       const registrationData: any = {
-        first_name: userData?.first_name || `New${Math.floor(Math.random() * 10000)}`,
-        last_name: userData?.last_name || 'User',
+        first_name: '',
+        last_name: '',
         mobile_number: phone,
         otp_code: otp,
         pin_code: pin
       };
 
-      // Only include email if provided
-      if (userData?.email_address) {
-        registrationData.email_address = userData.email_address;
+      // Set first_name - use provided value or default
+      if (userData?.first_name && userData.first_name.trim()) {
+        registrationData.first_name = userData.first_name.trim();
+      } else {
+        registrationData.first_name = `New${Math.floor(Math.random() * 10000)}`;
+      }
+
+      // Set last_name - use provided value or default
+      if (userData?.last_name && userData.last_name.trim()) {
+        registrationData.last_name = userData.last_name.trim();
+      } else {
+        registrationData.last_name = 'User';
+      }
+
+      // Only include email if provided and not empty
+      if (userData?.email_address && userData.email_address.trim()) {
+        registrationData.email_address = userData.email_address.trim();
       }
 
       console.log('Sending registration data:', registrationData);
@@ -310,6 +324,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toast.error('OTP has expired. Please request a new one.');
       } else if (error.message.includes('"gender" is not allowed')) {
         toast.error('Registration error: Invalid field provided.');
+      } else if (error.message.includes('first_name')) {
+        toast.error('First name is required');
+      } else if (error.message.includes('last_name')) {
+        toast.error('Last name is required');
       } else {
         toast.error(error.message || 'Registration failed. Please try again.');
       }
@@ -321,26 +339,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Verify OTP and Reset PIN
   const verifyOTPAndResetPin = async (phone: string, otp: string, newPin: string): Promise<boolean> => {
     try {
-      console.log('Resetting PIN for:', phone);
+      console.log("Resetting PIN for:", { phone, otp, newPin });
       
+      // FIX: Ensure all required fields are provided
       const response = await apiRequest('/api/auth/reset-pin', 'POST', {
         identifier: phone,
         otp_code: otp,
-        new_pin_code: newPin
+        new_pin_code: newPin  // Make sure this is not empty
       });
 
       console.log('Reset PIN response:', response);
 
-      if (response.message?.includes('successfully')) {
+      if (response.message?.includes('successfully') || response.success) {
         toast.success('PIN reset successfully!');
         return true;
       }
       
-      toast.error('Failed to reset PIN');
+      toast.error(response.message || 'Failed to reset PIN');
       return false;
     } catch (error: any) {
       console.error('Reset PIN error:', error);
-      toast.error(error.message || 'Failed to reset PIN');
+      
+      // Handle specific error messages
+      if (error.message.includes('"new_pin_code" is not allowed to be empty')) {
+        toast.error('Please enter a new PIN');
+      } else if (error.message.includes('Invalid OTP')) {
+        toast.error('Invalid OTP. Please try again.');
+      } else if (error.message.includes('User not found')) {
+        toast.error('User not found. Please check your mobile number.');
+      } else {
+        toast.error(error.message || 'Failed to reset PIN');
+      }
+      
       return false;
     }
   };

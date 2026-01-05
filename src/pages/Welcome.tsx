@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Button } from "../components/common/Button";
@@ -33,6 +33,29 @@ export const Welcome = () => {
     }
   }, [isAuthenticated, navigate]);
 
+  const handleVideoEnd = () => {
+    // Pause the videos when they end
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
+    if (mobileVideoRef.current) {
+      mobileVideoRef.current.pause();
+    }
+  };
+
+  const handlePlayVideo = () => {
+    // Reset and play the videos
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(console.error);
+    }
+    
+    if (mobileVideoRef.current) {
+      mobileVideoRef.current.currentTime = 0;
+      mobileVideoRef.current.play().catch(console.error);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row overflow-hidden bg-gradient-to-br from-gray-900 to-black">
       {/* Desktop View - Split Layout */}
@@ -42,11 +65,11 @@ export const Welcome = () => {
           <video
             ref={videoRef}
             autoPlay
-            loop
             muted
             playsInline
             preload="auto"
             className="w-full h-full object-cover"
+            onEnded={handleVideoEnd}
           >
             <source src={welcomeVideo} type="video/mp4" />
             Your browser does not support the video tag.
@@ -126,7 +149,7 @@ export const Welcome = () => {
                            hover:from-[#1A3480] hover:to-[#2A4AB5] 
                            transform hover:-translate-y-1 transition-all duration-300 
                            rounded-2xl shadow-xl hover:shadow-2xl active:scale-95"
-                onClick={() => navigate("/login")}
+                onClick={() => navigate("/auth/login")}
               >
                 <span className="text-white flex items-center justify-center">
                   <svg className="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -201,11 +224,11 @@ export const Welcome = () => {
               <video
                 ref={mobileVideoRef}
                 autoPlay
-                loop
                 muted
                 playsInline
                 preload="auto"
                 className="absolute inset-0 w-full h-full object-cover"
+                onEnded={handleVideoEnd}
               >
                 <source src={welcomeVideo} type="video/mp4" />
                 Your browser does not support the video tag.
@@ -309,10 +332,7 @@ export const Welcome = () => {
 
       {/* Video Play Fallback Button */}
       <button
-        onClick={() => {
-          if (videoRef.current) videoRef.current.play().catch(console.error);
-          if (mobileVideoRef.current) mobileVideoRef.current.play().catch(console.error);
-        }}
+        onClick={handlePlayVideo}
         className="fixed bottom-4 right-4 z-50 bg-[#21409A] hover:bg-[#1A3480] text-white px-4 py-2 rounded-lg text-sm opacity-0 hover:opacity-100 transition-opacity duration-300"
       >
         Play Video
