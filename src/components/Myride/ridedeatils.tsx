@@ -119,8 +119,9 @@ export function RideDetails({ ride, onClose }: RideDetailsProps) {
       <div className="sticky top-0 z-10 flex items-start justify-between border-b border-border bg-card p-5">
         <div className="flex-1">
           <div className="flex items-center justify-between">
+            {/* FIXED: Using start_location_name and end_location_name in header */}
             <h2 className="text-xl font-bold text-foreground">
-              {ride.start_address} → {ride.end_address}
+              {ride.start_location_name} → {ride.end_location_name}
             </h2>
             <button
               onClick={onClose}

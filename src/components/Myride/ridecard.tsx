@@ -184,12 +184,13 @@ export function RideCard({ ride, isSelected, onSelect, onRideCancelled }: RideCa
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="min-w-0 flex-1">
+                {/* FIXED: Using start_location_name and end_location_name instead of full addresses */}
                 <h3 className={cn(
                   "text-base font-semibold truncate",
                   isSelected ? "text-primary font-bold" : "text-foreground",
                   isCancelled && "line-through"
                 )}>
-                  {ride.start_address} → {ride.end_address}
+                  {ride.start_location_name} → {ride.end_location_name}
                 </h3>
               </div>
               <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { FiChevronLeft, FiMapPin, FiCalendar, FiClock, FiNavigation } from 'react-icons/fi';
-import { FaCar, FaCheck, FaTimes, FaExchangeAlt, FaUser } from 'react-icons/fa';
+import { FiChevronLeft, FiMapPin, FiCalendar, FiClock, FiNavigation, FiDownload } from 'react-icons/fi';
+import { FaCar, FaCheck, FaTimes, FaExchangeAlt, FaUser, FaStar } from 'react-icons/fa';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { 
@@ -8,6 +8,7 @@ import {
   counterRespondToBooking,
   getBookingDetails 
 } from '@/services/notificationApi';
+import axios from 'axios';
 
 // Declare Razorpay types
 declare global {
@@ -29,6 +30,8 @@ const RideRequestDetail: React.FC = () => {
   const [actionType, setActionType] = useState<'accept' | 'reject' | 'negotiate' | null>(null);
   const [showNegotiateForm, setShowNegotiateForm] = useState(false);
   const [isLoadingPayment, setIsLoadingPayment] = useState(false);
+  const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false);
+  const [driverVerificationDetails, setDriverVerificationDetails] = useState<any>(null);
   
   // Base URL for images (update this with your actual base URL)
   const BASE_URL = 'https://api-dev.oolalala.com';
@@ -46,6 +49,32 @@ const RideRequestDetail: React.FC = () => {
       script.onerror = () => reject(new Error('Failed to load Razorpay script'));
       document.body.appendChild(script);
     });
+  };
+
+  // Fetch driver verification details
+  const fetchDriverVerificationDetails = async (driverId: number) => {
+    try {
+      const token = localStorage.getItem('authToken') || 
+                   localStorage.getItem('accessToken') || 
+                   sessionStorage.getItem('authToken') || 
+                   sessionStorage.getItem('accessToken') || '';
+      
+      const response = await axios.get(
+        `${BASE_URL}/api/drivers/${driverId}/verification`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      setDriverVerificationDetails(response.data);
+    } catch (error) {
+      console.error('Error fetching driver verification details:', error);
+      setDriverVerificationDetails(null);
+    }
   };
 
   useEffect(() => {
@@ -78,6 +107,13 @@ const RideRequestDetail: React.FC = () => {
         // Set new fare to current final fare for negotiation
         if (details.final_fare) {
           setNewFare(details.final_fare.toString());
+        }
+
+        // Fetch driver verification details if user is rider and booking is completed
+        if (details.your_current_role === 'rider' && 
+            details.booking_status === 'completed' &&
+            details.driver_details?.id) {
+          await fetchDriverVerificationDetails(details.driver_details.id);
         }
         
       } catch (error: any) {
@@ -208,10 +244,10 @@ const RideRequestDetail: React.FC = () => {
 
       // For driver/partner only
       if (bookingData.your_current_role !== 'rider') {
-        // Use "negotiate" action instead of "accept" with new fare
+        // Use "negotiate" action
         const response = await respondToBooking(
           bookingData.booking_id,
-          'negotiate', // Use negotiate action
+          'negotiate',
           negotiatedFare,
           remarks || "Can you do " + negotiatedFare
         );
@@ -350,6 +386,96 @@ const RideRequestDetail: React.FC = () => {
     }
   };
 
+  // Handle Rate Trip button click
+  const handleRateTrip = () => {
+    if (!bookingData?.booking_id) {
+      toast({
+        title: "Error",
+        description: "Booking ID not found",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Navigate to trip rating page with state instead of URL parameter
+    navigate('/trip-rating', {
+      state: {
+        bookingId: bookingData.booking_id,
+        driverDetails: bookingData.driver_details,
+        rideDetails: bookingData.ride_details,
+        bookingData: bookingData // Pass the entire booking data if needed
+      }
+    });
+  };
+
+  // Handle Download Invoice
+  const handleDownloadInvoice = async () => {
+    if (!bookingData?.booking_id) {
+      toast({
+        title: "Error",
+        description: "Booking ID not found",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      setIsDownloadingInvoice(true);
+      
+      const token = localStorage.getItem('authToken') || 
+                   localStorage.getItem('accessToken') || 
+                   sessionStorage.getItem('authToken') || 
+                   sessionStorage.getItem('accessToken') || '';
+      
+      const url = `${BASE_URL}/api/bookings/${bookingData.booking_id}/invoice`;
+      
+      // Create a temporary link to trigger download
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `invoice-${bookingData.booking_number || bookingData.booking_id}.pdf`);
+      link.setAttribute('target', '_blank');
+      
+      // Add authorization header through custom header method
+      // Note: This might not work for direct downloads. We'll use fetch instead.
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to download invoice');
+      }
+      
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      
+      link.href = downloadUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up the URL object
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      toast({
+        title: "Success",
+        description: "Invoice downloaded successfully",
+      });
+      
+    } catch (error: any) {
+      console.error('Error downloading invoice:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to download invoice",
+        variant: "destructive"
+      });
+    } finally {
+      setIsDownloadingInvoice(false);
+    }
+  };
+
   // Toggle negotiate form
   const toggleNegotiateForm = () => {
     setShowNegotiateForm(!showNegotiateForm);
@@ -467,6 +593,11 @@ const RideRequestDetail: React.FC = () => {
     bookingData?.booking_status === 'payment_pending' && 
     bookingData?.your_current_role === 'rider';
 
+  // Check if Rate Trip and Download Invoice buttons should be shown
+  const showRateAndInvoiceButtons = 
+    bookingData?.booking_status === 'completed' && 
+    bookingData?.your_current_role === 'rider';
+
   // Get what to show based on conditions
   const detailsToShow = shouldShowDetails();
 
@@ -489,7 +620,7 @@ const RideRequestDetail: React.FC = () => {
           <p className="text-red-600 mb-4">Failed to load booking data</p>
           <button 
             onClick={() => navigate(-1)}
-            className="px-6 py-2 bg-[#21409A] text-white rounded-lg"
+            className="px-4 py-2 bg-[#21409A] text-white rounded text-sm"
           >
             Go Back
           </button>
@@ -518,29 +649,29 @@ const RideRequestDetail: React.FC = () => {
       <header>
         <button 
           onClick={() => navigate(-1)}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors m-4"
+          className="p-2 hover:bg-gray-100 rounded-full transition-colors m-2"
         >
-          <FiChevronLeft className="text-2xl text-gray-700" />
+          <FiChevronLeft className="text-xl text-gray-700" />
         </button>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+      <main className="max-w-6xl mx-auto px-2 sm:px-4 pb-4">
         {/* Turn Indicator */}
         {isMyTurn && (
-          <div className="mb-6">
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-center gap-3">
+          <div className="mb-4">
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
+              <div className="flex items-center gap-2">
                 <div className="flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center">
-                    <span className="text-yellow-600 font-bold">!</span>
+                  <div className="w-6 h-6 rounded-full bg-yellow-100 flex items-center justify-center">
+                    <span className="text-yellow-600 font-bold text-xs">!</span>
                   </div>
                 </div>
                 <div className="flex-1">
-                  <p className="text-yellow-800 font-medium">
+                  <p className="text-yellow-800 font-medium text-sm">
                     It's your turn to respond!
                   </p>
-                  <p className="text-yellow-700 text-sm mt-1">
+                  <p className="text-yellow-700 text-xs mt-1">
                     Please accept, decline, or negotiate the offer.
                   </p>
                 </div>
@@ -549,24 +680,26 @@ const RideRequestDetail: React.FC = () => {
           </div>
         )}
 
-        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
           {/* Left Column - 55% width */}
-          <div className="lg:w-[55%] space-y-6">
+          <div className="lg:w-[55%] space-y-4">
             {/* Ride Request Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
-                <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">Ride Request</h2>
-                <p className="text-gray-500 text-sm mt-1">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Ride Request</h2>
+                <p className="text-gray-500 text-xs mt-1">
                   Booking ID: {bookingData.booking_number || `#${bookingData.booking_id}`}
                 </p>
               </div>
-              <span className={`self-start sm:self-auto px-4 py-1.5 rounded-full text-sm font-medium border ${
+              <span className={`self-start sm:self-auto px-3 py-1 rounded-full text-xs font-medium border ${
                 bookingData.booking_status === 'negotiation_pending' 
                   ? 'bg-yellow-50 text-yellow-600 border-yellow-200'
                   : bookingData.booking_status === 'payment_pending'
                   ? 'bg-blue-50 text-blue-600 border-blue-200'
                   : bookingData.booking_status === 'confirmed'
                   ? 'bg-green-50 text-green-600 border-green-200'
+                  : bookingData.booking_status === 'completed'
+                  ? 'bg-purple-50 text-purple-600 border-purple-200'
                   : 'bg-gray-50 text-gray-600 border-gray-200'
               }`}>
                 {bookingData.booking_status ? bookingData.booking_status.replace(/_/g, ' ') : 'New Request'}
@@ -574,24 +707,24 @@ const RideRequestDetail: React.FC = () => {
             </div>
 
             {/* Fare Card */}
-            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="bg-white rounded p-3 shadow-sm border border-gray-100">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
-                  <p className="text-gray-500 text-sm">Base Fare</p>
-                  <p className="text-3xl sm:text-4xl font-bold text-gray-900 mt-1">
+                  <p className="text-gray-500 text-xs">Base Fare</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-1">
                     ₹{baseFare.toLocaleString('en-IN')}
                   </p>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-4 sm:gap-8">
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-6">
                   <div className="text-left sm:text-right">
-                    <p className="text-gray-500 text-sm">Negotiated Fare</p>
-                    <p className="text-xl sm:text-2xl font-semibold text-gray-900 mt-1">
+                    <p className="text-gray-500 text-xs">Negotiated Fare</p>
+                    <p className="text-lg sm:text-xl font-semibold text-gray-900 mt-1">
                       ₹{negotiatedFare.toLocaleString('en-IN')}
                     </p>
                   </div>
                   <div className="text-left sm:text-right">
-                    <p className="text-green-600 text-sm font-medium">Difference</p>
-                    <p className="text-xl sm:text-2xl font-semibold text-green-600 mt-1">
+                    <p className="text-green-600 text-xs font-medium">Difference</p>
+                    <p className="text-lg sm:text-xl font-semibold text-green-600 mt-1">
                       ₹{difference.toLocaleString('en-IN')}
                     </p>
                   </div>
@@ -601,18 +734,18 @@ const RideRequestDetail: React.FC = () => {
 
             {/* Route Details */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Route Details</h3>
-              <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100">
-                <div className="space-y-4">
+              <h3 className="text-base font-semibold text-gray-900 mb-2">Route Details</h3>
+              <div className="bg-white rounded p-3 shadow-sm border border-gray-100">
+                <div className="space-y-3">
                   {/* From */}
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
-                      <FiNavigation className="text-[#21409A]" />
+                  <div className="flex items-start gap-2">
+                    <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
+                      <FiNavigation className="text-[#21409A] text-sm" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-gray-500 text-sm">From:</p>
-                      <p className="text-gray-900 font-semibold truncate">
-                        {bookingData.route?.from?.address || bookingData.route?.from?.name || 'Location not specified'}
+                      <p className="text-gray-500 text-xs">From:</p>
+                      <p className="text-gray-900 font-semibold truncate text-sm">
+                        {bookingData.route?.from?.name || 'Location not specified'}
                       </p>
                       {bookingData.route?.from?.time && (
                         <p className="text-gray-500 text-xs mt-1">
@@ -623,14 +756,14 @@ const RideRequestDetail: React.FC = () => {
                   </div>
 
                   {/* To */}
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0">
-                      <FiMapPin className="text-green-600" />
+                  <div className="flex items-start gap-2">
+                    <div className="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0">
+                      <FiMapPin className="text-green-600 text-sm" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-gray-500 text-sm">To:</p>
-                      <p className="text-gray-900 font-semibold truncate">
-                        {bookingData.route?.to?.address || bookingData.route?.to?.name || 'Location not specified'}
+                      <p className="text-gray-500 text-xs">To:</p>
+                      <p className="text-gray-900 font-semibold truncate text-sm">
+                        {bookingData.route?.to?.name || 'Location not specified'}
                       </p>
                       {bookingData.route?.to?.time && (
                         <p className="text-gray-500 text-xs mt-1">
@@ -642,8 +775,8 @@ const RideRequestDetail: React.FC = () => {
                 </div>
 
                 {/* Trip Info Row */}
-                <div className="flex flex-wrap gap-4 sm:gap-6 mt-6 pt-4 border-t border-gray-100">
-                  <div className="flex items-center gap-2 text-gray-600 text-sm">
+                <div className="flex flex-wrap gap-3 sm:gap-4 mt-4 pt-3 border-t border-gray-100">
+                  <div className="flex items-center gap-1 text-gray-600 text-xs">
                     <FiCalendar className="text-gray-400" />
                     <span className="whitespace-nowrap">
                       {bookingData.ride_details?.travel_datetime ? 
@@ -651,13 +784,13 @@ const RideRequestDetail: React.FC = () => {
                        'Date not set'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-gray-600 text-sm">
+                  <div className="flex items-center gap-1 text-gray-600 text-xs">
                     <FiNavigation className="text-gray-400" />
                     <span className="whitespace-nowrap">
                       {bookingData.route?.distance ? `${bookingData.route.distance} km` : 'Distance calculating...'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-gray-600 text-sm">
+                  <div className="flex items-center gap-1 text-gray-600 text-xs">
                     <FiClock className="text-gray-400" />
                     <span className="whitespace-nowrap">
                       {bookingData.ride_details?.travel_datetime ? 
@@ -665,7 +798,7 @@ const RideRequestDetail: React.FC = () => {
                        'Time not set'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-gray-600 text-sm">
+                  <div className="flex items-center gap-1 text-gray-600 text-xs">
                     <FiClock className="text-gray-400" />
                     <span className="whitespace-nowrap">
                       {bookingData.route?.duration ? bookingData.route.duration : 'Duration calculating...'}
@@ -677,24 +810,24 @@ const RideRequestDetail: React.FC = () => {
 
             {/* Negotiation History */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Negotiation History</h3>
-              <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100">
+              <h3 className="text-base font-semibold text-gray-900 mb-2">Negotiation History</h3>
+              <div className="bg-white rounded p-3 shadow-sm border border-gray-100">
                 {negotiationHistory.length > 0 ? (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {negotiationHistory.map((item: any) => (
-                      <div key={item.id} className="flex items-start gap-3">
+                      <div key={item.id} className="flex items-start gap-2">
                         <div className="flex flex-col items-center pt-1">
-                          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                             item.type === 'driver' ? 'bg-blue-500' : 'bg-green-500'
                           }`}></div>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-gray-700 text-sm sm:text-base">
+                          <p className="text-gray-700 text-xs sm:text-sm">
                             <span className="font-semibold capitalize">{item.type}:</span>
-                            <span className="ml-2 font-bold">₹{item.amount.toLocaleString('en-IN')}</span>
+                            <span className="ml-1 font-bold">₹{item.amount.toLocaleString('en-IN')}</span>
                           </p>
                           {item.remarks && (
-                            <p className="text-gray-500 text-xs sm:text-sm mt-1 italic">
+                            <p className="text-gray-500 text-xs mt-1 italic">
                               "{item.remarks}"
                             </p>
                           )}
@@ -708,34 +841,71 @@ const RideRequestDetail: React.FC = () => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-gray-500 text-center py-4">No negotiation history available</p>
+                  <p className="text-gray-500 text-center py-3 text-sm">No negotiation history available</p>
                 )}
               </div>
             </div>
           </div>
 
           {/* Right Column - 45% width */}
-          <div className="lg:w-[45%] space-y-6">
+          <div className="lg:w-[45%] space-y-4">
+            {/* Notes Section - Show only when booking_status is 'confirmed' and user is rider */}
+            {bookingData.booking_status === 'confirmed' &&
+  bookingData.your_current_role === 'rider' && (
+    <div className="w-full">
+      <h3 className="text-base font-semibold text-gray-900 mb-2">
+        Important Notes
+      </h3>
+
+      <div className="bg-white rounded p-3 shadow-sm border border-gray-100">
+        <p className="text-red-600 text-xs font-medium mb-2">
+          🚨 Important:
+        </p>
+
+        <ul className="text-gray-600 text-xs space-y-1 pl-4">
+          <li className="list-disc">
+            Verify the driver details, vehicle number, and OTP before your ride.
+          </li>
+
+          <li className="list-disc">
+            If the driver or vehicle details do not match, do not board the
+            vehicle and contact customer support immediately.
+          </li>
+
+          <li className="list-disc font-medium text-gray-700">
+            Your safety is our priority.
+          </li>
+
+          <li className="list-disc text-red-500 font-medium">
+            After OTP verification, the platform will not be responsible for any
+            personal disputes, losses, or incidents during the ride.
+          </li>
+        </ul>
+      </div>
+    </div>
+)}
+
+
             {/* Passenger Details - Show only when conditions met */}
             {detailsToShow.showPassenger && bookingData.rider_details && (
               <div className="w-full">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Passenger Details</h3>
-                <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-4 w-full">
+                <h3 className="text-base font-semibold text-gray-900 mb-2">Passenger Details</h3>
+                <div className="bg-white rounded p-3 shadow-sm border border-gray-100 space-y-3 w-full">
                   <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
                       <div className="relative">
                         {bookingData.rider_details.profile_image_url ? (
                           <img 
                             src={getFullImageUrl(bookingData.rider_details.profile_image_url)}
                             alt={bookingData.rider_details.name}
-                            className="w-10 h-10 rounded-full object-cover"
+                            className="w-8 h-8 rounded-full object-cover"
                             onError={(e) => {
-                              (e.target as HTMLImageElement).src = 'https://via.placeholder.com/40';
+                              (e.target as HTMLImageElement).src = 'https://via.placeholder.com/32';
                             }}
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                            <FaUser className="text-blue-600 text-sm" />
+                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <FaUser className="text-blue-600 text-xs" />
                           </div>
                         )}
                       </div>
@@ -759,22 +929,22 @@ const RideRequestDetail: React.FC = () => {
             {/* Driver Details - Show only when conditions met */}
             {detailsToShow.showDriver && bookingData.driver_details && (
               <div className="w-full">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Driver Details</h3>
-                <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 w-full">
-                  <div className="flex items-center gap-3">
+                <h3 className="text-base font-semibold text-gray-900 mb-2">Driver Details</h3>
+                <div className="bg-white rounded p-3 shadow-sm border border-gray-100 w-full">
+                  <div className="flex items-center gap-2">
                     <div className="relative">
                       {bookingData.driver_details.profile_image_url ? (
                         <img 
                           src={getFullImageUrl(bookingData.driver_details.profile_image_url)}
                           alt={bookingData.driver_details.name}
-                          className="w-10 h-10 rounded-full object-cover"
+                          className="w-8 h-8 rounded-full object-cover"
                           onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/40';
+                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/32';
                           }}
                         />
                       ) : (
-                        <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                          <FaCar className="text-green-600 text-sm" />
+                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                          <FaCar className="text-green-600 text-xs" />
                         </div>
                       )}
                     </div>
@@ -797,11 +967,11 @@ const RideRequestDetail: React.FC = () => {
             {/* Vehicle Details - Show only when conditions met */}
             {detailsToShow.showVehicle && bookingData.vehicle_details && (
               <div className="w-full">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Vehicle Details</h3>
-                <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 w-full">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                      <FaCar className="text-[#21409A] text-lg" />
+                <h3 className="text-base font-semibold text-gray-900 mb-2">Vehicle Details</h3>
+                <div className="bg-white rounded p-3 shadow-sm border border-gray-100 w-full">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center flex-shrink-0">
+                      <FaCar className="text-[#21409A] text-sm" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-gray-900 truncate text-sm">
@@ -823,8 +993,8 @@ const RideRequestDetail: React.FC = () => {
 
             {/* Message when no details are shown */}
             {!detailsToShow.showDriver && !detailsToShow.showPassenger && !detailsToShow.showVehicle && (
-              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                <p className="text-gray-600 text-center text-sm">
+              <div className="bg-gray-50 rounded p-3 border border-gray-200">
+                <p className="text-gray-600 text-center text-xs">
                   {bookingData.booking_status === 'confirmed' 
                     ? 'Details are only shown to specific roles for confirmed bookings.'
                     : 'Details are hidden for non-confirmed booking statuses.'}
@@ -832,51 +1002,125 @@ const RideRequestDetail: React.FC = () => {
               </div>
             )}
 
+            {/* Driver Verification Card - Show only when user is rider and booking is completed */}
+            {bookingData.booking_status === 'completed' && 
+             bookingData.your_current_role === 'rider' &&
+             driverVerificationDetails && (
+              <div className="w-full">
+                <h3 className="text-base font-semibold text-gray-900 mb-2">Driver Verification</h3>
+                <div className="bg-white rounded p-3 shadow-sm border border-gray-100 w-full">
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-gray-500 text-xs">License Verified</p>
+                        <p className={`text-sm font-medium ${driverVerificationDetails.license_verified ? 'text-green-600' : 'text-red-600'}`}>
+                          {driverVerificationDetails.license_verified ? 'Yes' : 'No'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Vehicle Verified</p>
+                        <p className={`text-sm font-medium ${driverVerificationDetails.vehicle_verified ? 'text-green-600' : 'text-red-600'}`}>
+                          {driverVerificationDetails.vehicle_verified ? 'Yes' : 'No'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="border-t border-gray-100 pt-2">
+                      <p className="text-gray-500 text-xs mb-1">Verification Status</p>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${driverVerificationDetails.verification_status === 'verified' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+                        <p className="text-sm font-medium capitalize">
+                          {driverVerificationDetails.verification_status || 'Not verified'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Rate Trip and Download Invoice Buttons - Show only when booking is completed and user is rider */}
+            {showRateAndInvoiceButtons && (
+              <div className="w-full space-y-3">
+                <h3 className="text-base font-semibold text-gray-900">Trip Completed</h3>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={handleRateTrip}
+                    className="w-full px-3 py-2 bg-[#21409A] text-white rounded font-medium flex items-center justify-center gap-2 text-sm hover:bg-[#1a347a] transition-colors"
+                  >
+                    <FaStar className="text-xs" />
+                    Rate This Driver
+                  </button>
+                  <button
+                    onClick={handleDownloadInvoice}
+                    disabled={isDownloadingInvoice}
+                    className={`w-full px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded font-medium flex items-center justify-center gap-2 text-sm hover:bg-gray-50 transition-colors ${
+                      isDownloadingInvoice ? 'opacity-70 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    {isDownloadingInvoice ? (
+                      <>
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-600"></div>
+                        Downloading...
+                      </>
+                    ) : (
+                      <>
+                        <FiDownload className="text-xs" />
+                        Download Invoice
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-gray-500 text-xs text-center">
+                  Your trip has been completed. Please rate your driver and download your invoice.
+                </p>
+              </div>
+            )}
+
             {/* Action Section */}
-            {isMyTurn && (
-              <div className="w-full space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900">
+            {isMyTurn && !showRateAndInvoiceButtons && (
+              <div className="w-full space-y-3">
+                <h3 className="text-base font-semibold text-gray-900">
                   Your Action Required
                 </h3>
                 
                 {/* Negotiate Fare (only for driver/partner) */}
                 {userRole !== 'rider' && showNegotiateForm && (
-                  <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 w-full">
-                    <h4 className="font-medium text-gray-700 mb-3">Make a Counter Offer</h4>
-                    <div className="space-y-3">
+                  <div className="bg-white rounded p-3 shadow-sm border border-gray-100 w-full">
+                    <h4 className="font-medium text-gray-700 mb-2 text-sm">Make a Counter Offer</h4>
+                    <div className="space-y-2">
                       <div>
-                        <label className="block text-sm text-gray-600 mb-1">Counter Fare (₹)</label>
+                        <label className="block text-xs text-gray-600 mb-1">Counter Fare (₹)</label>
                         <input
                           type="number"
                           value={newFare}
                           onChange={(e) => setNewFare(e.target.value)}
                           placeholder="Enter counter fare amount"
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#21409A]/20 focus:border-[#21409A] text-sm"
+                          className="w-full px-3 py-2 border border-gray-200 rounded text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#21409A]/20 focus:border-[#21409A] text-sm"
                           min="1"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm text-gray-600 mb-1">Remarks (Optional)</label>
+                        <label className="block text-xs text-gray-600 mb-1">Remarks (Optional)</label>
                         <input
                           type="text"
                           value={remarks}
                           onChange={(e) => setRemarks(e.target.value)}
                           placeholder="e.g., Can you do this fare?"
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#21409A]/20 focus:border-[#21409A] text-sm"
+                          className="w-full px-3 py-2 border border-gray-200 rounded text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#21409A]/20 focus:border-[#21409A] text-sm"
                         />
                       </div>
                     </div>
-                    <div className="flex gap-2 mt-4">
+                    <div className="flex gap-2 mt-3">
                       <button
                         onClick={toggleNegotiateForm}
-                        className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                        className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 rounded font-medium hover:bg-gray-200 transition-colors text-sm"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={handleNegotiate}
                         disabled={isProcessing || !newFare}
-                        className={`flex-1 px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 ${
+                        className={`flex-1 px-3 py-2 rounded font-medium flex items-center justify-center gap-1 text-sm ${
                           isProcessing && actionType === 'negotiate'
                             ? 'bg-yellow-500 text-white cursor-wait'
                             : 'bg-yellow-500 text-white hover:bg-yellow-600'
@@ -884,12 +1128,12 @@ const RideRequestDetail: React.FC = () => {
                       >
                         {isProcessing && actionType === 'negotiate' ? (
                           <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
                             Sending...
                           </>
                         ) : (
                           <>
-                            <FaExchangeAlt className="text-sm" />
+                            <FaExchangeAlt className="text-xs" />
                             Send Counter Offer
                           </>
                         )}
@@ -899,11 +1143,11 @@ const RideRequestDetail: React.FC = () => {
                 )}
 
                 {/* Action Buttons */}
-                <div className={`flex gap-3 ${showNegotiateForm ? 'pt-2' : 'pt-4'} w-full`}>
+                <div className={`flex gap-2 ${showNegotiateForm ? 'pt-1' : 'pt-3'} w-full`}>
                   <button
                     onClick={handleReject}
                     disabled={isProcessing}
-                    className={`flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 ${
+                    className={`flex-1 px-3 py-2 rounded font-medium flex items-center justify-center gap-1 text-sm ${
                       isProcessing && actionType === 'reject'
                         ? 'bg-red-500 text-white cursor-wait'
                         : 'bg-white border border-red-200 text-red-600 hover:bg-red-50'
@@ -911,12 +1155,12 @@ const RideRequestDetail: React.FC = () => {
                   >
                     {isProcessing && actionType === 'reject' ? (
                       <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-red-600"></div>
                         Declining...
                       </>
                     ) : (
                       <>
-                        <FaTimes className="text-sm" />
+                        <FaTimes className="text-xs" />
                         {userRole === 'rider' ? 'Decline' : 'Reject'}
                       </>
                     )}
@@ -926,9 +1170,9 @@ const RideRequestDetail: React.FC = () => {
                     <button
                       onClick={toggleNegotiateForm}
                       disabled={isProcessing}
-                      className="flex-1 px-4 py-3 bg-yellow-500 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-yellow-600"
+                      className="flex-1 px-3 py-2 bg-yellow-500 text-white rounded font-medium flex items-center justify-center gap-1 text-sm hover:bg-yellow-600"
                     >
-                      <FaExchangeAlt className="text-sm" />
+                      <FaExchangeAlt className="text-xs" />
                       Negotiate
                     </button>
                   )}
@@ -936,7 +1180,7 @@ const RideRequestDetail: React.FC = () => {
                   <button
                     onClick={handleAccept}
                     disabled={isProcessing}
-                    className={`flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 ${
+                    className={`flex-1 px-3 py-2 rounded font-medium flex items-center justify-center gap-1 text-sm ${
                       isProcessing && actionType === 'accept'
                         ? 'bg-green-500 text-white cursor-wait'
                         : 'bg-[#21409A] text-white hover:bg-[#1a347a]'
@@ -944,12 +1188,12 @@ const RideRequestDetail: React.FC = () => {
                   >
                     {isProcessing && actionType === 'accept' ? (
                       <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
                         Accepting...
                       </>
                     ) : (
                       <>
-                        <FaCheck className="text-sm" />
+                        <FaCheck className="text-xs" />
                         Accept
                       </>
                     )}
@@ -958,8 +1202,8 @@ const RideRequestDetail: React.FC = () => {
 
                 {/* Quick Accept/Reject for rider */}
                 {userRole === 'rider' && (
-                  <div className="mt-4 text-center">
-                    <p className="text-gray-500 text-sm">
+                  <div className="mt-3 text-center">
+                    <p className="text-gray-500 text-xs">
                       As a rider, you can only accept or decline the current offer
                     </p>
                   </div>
@@ -973,17 +1217,13 @@ const RideRequestDetail: React.FC = () => {
                 <button
                   onClick={handlePayNow}
                   disabled={isLoadingPayment}
-                  className={`w-full px-4 py-3 bg-[#21409A] text-white rounded-lg font-medium transition-colors text-center flex items-center justify-center gap-2 ${
+                  className={`w-full px-3 py-2 bg-[#21409A] text-white rounded font-medium transition-colors text-center flex items-center justify-center gap-1 text-sm ${
                     isLoadingPayment ? 'opacity-70 cursor-not-allowed' : 'hover:bg-[#1a347a]'
                   }`}
-                  style={{
-                    borderRadius: '2px',
-                    backgroundColor: '#21409A'
-                  }}
                 >
                   {isLoadingPayment ? (
                     <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
                       Processing...
                     </>
                   ) : (
@@ -992,7 +1232,7 @@ const RideRequestDetail: React.FC = () => {
                 </button>
                 
                 {/* Test Card Information */}
-                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
                   <p className="text-xs text-yellow-800 font-medium mb-1">Test Card Details:</p>
                   <p className="text-xs text-yellow-700">
                     Card Number: 4111 1111 1111 1111<br />
@@ -1003,13 +1243,13 @@ const RideRequestDetail: React.FC = () => {
               </div>
             )}
 
-            {/* Status Message if not user's turn */}
-            {!isMyTurn && !showPayNowButton && (
-              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                <p className="text-gray-600 text-center">
+            {/* Status Message if not user's turn and not completed booking */}
+            {!isMyTurn && !showPayNowButton && !showRateAndInvoiceButtons && (
+              <div className="bg-gray-50 rounded p-3 border border-gray-200">
+                <p className="text-gray-600 text-center text-sm">
                   Waiting for the other party to respond...
                 </p>
-                <p className="text-gray-500 text-sm text-center mt-1">
+                <p className="text-gray-500 text-xs text-center mt-1">
                   Current turn: <span className="font-medium capitalize">{bookingData.current_turn || 'unknown'}</span>
                 </p>
               </div>

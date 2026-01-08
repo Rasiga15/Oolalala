@@ -113,6 +113,9 @@ export interface VerifyDropResponse {
   message: string;
 }
 
+
+
+
 const apiRequest = async (endpoint: string, method: string, body?: any, params?: Record<string, any>, requiresAuth = true) => {
   // Construct URL with query parameters
   let url = `${BASE_URL}${endpoint}`;

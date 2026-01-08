@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import { FiSun, FiMoon } from "react-icons/fi";
@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import axios from "axios";
 import { BASE_URL } from "@/config/api";
+import { getUserDocuments } from "@/services/documentApi";
 
 interface Ride {
   ride_id: number;
@@ -70,8 +71,39 @@ interface CreateRideRequestData {
   travel_date: string;
   travel_time: string;
   seats_required: number;
-  preferences?: string[]; // Changed to string array to match API
+  preferences?: number[];
 }
+
+interface Document {
+  id: number;
+  documentType: string;
+  documentNumber: string;
+  issueDate: string | null;
+  expiryDate: string | null;
+  verificationStatus: 'verified' | 'pending' | 'rejected';
+}
+
+const PREFERENCE_MAPPING: { [key: string]: number } = {
+  "Ladies only": 12,
+  "Kids Only": 11,
+  "Senior Citizen": 18,
+  "Kids friendly": 11,
+  "Female Driver Preferred": 10,
+  "Male Passengers Only": 13,
+  "All Genders Welcome": 14,
+  "Pet-Friendly Ride": 9,
+  "Smoke-Free Vehicle": 17,
+  "1 Luggage Per Person": 15,
+  "2 Luggage Per Person": 16,
+  "Extra Luggage Space": 8,
+  "Wheelchair Accessible": 7,
+  "Silent Ride Preferred": 4,
+  "Conversation Welcome": 5,
+  "AC Temperature Control": 6,
+  "Email Updates": 1,
+  "SMS Alerts": 2,
+  "Push Notifications": 3,
+};
 
 const FindRide = () => {
   const navigate = useNavigate();
@@ -86,12 +118,11 @@ const FindRide = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useState<SearchParams>({});
-  const [isCreatingRequest, setIsCreatingRequest] = useState(false);
   
-  // Day/Night filter state
+  const [isCreatingRequest, setIsCreatingRequest] = useState(false);
+  const requestInProgress = useRef(false);
+  
   const [timeOfDayFilter, setTimeOfDayFilter] = useState<'day' | 'night'>('day');
-
-  // Store original search parameters for creating ride request
   const [searchCoordinates, setSearchCoordinates] = useState({
     from_lat: 0,
     from_lng: 0,
@@ -100,9 +131,115 @@ const FindRide = () => {
     from_location_name: '',
     to_location_name: ''
   });
-
-  // Store preferences from search
   const [searchPreferences, setSearchPreferences] = useState<string[]>([]);
+  const [additionalSearchParams, setAdditionalSearchParams] = useState<any>({});
+
+  const [showIdProofPopup, setShowIdProofPopup] = useState(false);
+  const [userDocuments, setUserDocuments] = useState<Document[]>([]);
+  const [isCheckingIdProof, setIsCheckingIdProof] = useState(false);
+  
+  // Add ref to track if ID check is already in progress
+  const idCheckInProgress = useRef(false);
+  // Cache for documents to prevent multiple API calls
+  const documentsCache = useRef<Document[] | null>(null);
+  const cacheTimestamp = useRef<number>(0);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+
+  // Optimized ID Proof check with caching and debouncing
+  const checkIdProofVerification = useCallback(async (forceRefresh = false): Promise<boolean> => {
+    if (!isAuthenticated || !user?.token) return false;
+
+    // Check if already checking
+    if (idCheckInProgress.current) {
+      console.log("ID check already in progress");
+      return false;
+    }
+
+    // Check cache if not forcing refresh
+    if (!forceRefresh && documentsCache.current && cacheTimestamp.current) {
+      const now = Date.now();
+      const cacheAge = now - cacheTimestamp.current;
+      if (cacheAge < CACHE_DURATION) {
+        setUserDocuments(documentsCache.current);
+        const hasVerifiedDocument = documentsCache.current.some(
+          doc => doc.verificationStatus === 'verified'
+        );
+        return hasVerifiedDocument;
+      }
+    }
+
+    setIsCheckingIdProof(true);
+    idCheckInProgress.current = true;
+
+    try {
+      const documents = await getUserDocuments(user.token);
+      
+      // Update cache
+      documentsCache.current = documents;
+      cacheTimestamp.current = Date.now();
+      
+      setUserDocuments(documents);
+      
+      const hasVerifiedDocument = documents.some(
+        doc => doc.verificationStatus === 'verified'
+      );
+      
+      return hasVerifiedDocument;
+    } catch (error) {
+      console.error('Error checking ID proof:', error);
+      return false;
+    } finally {
+      setIsCheckingIdProof(false);
+      idCheckInProgress.current = false;
+    }
+  }, [isAuthenticated, user?.token]);
+
+  // Single handler for all actions with ID proof check
+  const handleActionWithIdProofCheck = useCallback(async (
+    action: 'request' | 'create',
+    ride?: Ride
+  ): Promise<void> => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Please login",
+        description: "You need to login to perform this action",
+        variant: "destructive",
+      });
+      navigate("/login");
+      return;
+    }
+
+    // Check ID proof verification
+    const hasVerifiedIdProof = await checkIdProofVerification();
+    
+    if (!hasVerifiedIdProof) {
+      setShowIdProofPopup(true);
+      return;
+    }
+    
+    // Proceed with the action if verified
+    if (action === 'request' && ride) {
+      setSelectedRide(ride);
+      setShowPanel(true);
+    } else if (action === 'create') {
+      await handleCreateRideRequest();
+    }
+  }, [isAuthenticated, navigate, toast, checkIdProofVerification]);
+
+  // Handle Request Ride button click
+  const handleRequest = (ride: Ride) => {
+    handleActionWithIdProofCheck('request', ride);
+  };
+
+  // Handle Create Ride Request button click
+  const handleCreateRideRequestWithIdCheck = () => {
+    handleActionWithIdProofCheck('create');
+  };
+
+  const handleVerifyIdProof = () => {
+    setShowIdProofPopup(false);
+    navigate("/id-proof");
+  };
 
   useEffect(() => {
     const fetchRides = async () => {
@@ -115,6 +252,9 @@ const FindRide = () => {
           searchParams?: any;
           searchCoordinates?: any;
           preferences?: string[];
+          travel_date?: string;
+          travel_time?: string;
+          seats_required?: number;
         };
         
         if (locationState?.searchResults) {
@@ -127,6 +267,12 @@ const FindRide = () => {
               date: locationState.searchParams.date || '',
               seats: locationState.searchParams.no_of_seat ? parseInt(locationState.searchParams.no_of_seat) : 1,
               preferences: locationState.preferences || []
+            });
+            
+            setAdditionalSearchParams({
+              travel_date: locationState.searchParams.date || '',
+              travel_time: locationState.searchParams.time || '20:00',
+              seats_required: locationState.searchParams.no_of_seat ? parseInt(locationState.searchParams.no_of_seat) : 1
             });
           }
           
@@ -162,6 +308,12 @@ const FindRide = () => {
               date: parsedParams.date || '',
               seats: parsedParams.seats || 1,
               preferences: parsedParams.preferences || []
+            });
+            
+            setAdditionalSearchParams({
+              travel_date: parsedParams.date || '',
+              travel_time: parsedParams.time || '20:00',
+              seats_required: parsedParams.seats || 1
             });
             
             if (parsedParams.preferences) {
@@ -221,7 +373,6 @@ const FindRide = () => {
     }
   };
 
-  // Filter rides based on selected time of day
   useEffect(() => {
     if (timeOfDayFilter) {
       const filtered = rides.filter(ride => 
@@ -232,20 +383,6 @@ const FindRide = () => {
       setFilteredRides(rides);
     }
   }, [timeOfDayFilter, rides]);
-
-  const handleRequest = (ride: Ride) => {
-    if (!isAuthenticated) {
-      toast({
-        title: "Please login",
-        description: "You need to login to request a ride",
-        variant: "destructive",
-      });
-      navigate("/login");
-      return;
-    }
-    setSelectedRide(ride);
-    setShowPanel(true);
-  };
 
   const handleBookingSuccess = (bookingData: BookingSuccessData) => {
     toast({
@@ -272,8 +409,18 @@ const FindRide = () => {
     setSelectedRide(null);
   };
 
-  // CREATE RIDE REQUEST FUNCTION
+  const convertPreferencesToIds = (preferenceNames: string[]): number[] => {
+    return preferenceNames
+      .map(pref => PREFERENCE_MAPPING[pref])
+      .filter(id => id !== undefined) as number[];
+  };
+
   const handleCreateRideRequest = async () => {
+    if (requestInProgress.current || isCreatingRequest) {
+      console.log("Request already in progress, ignoring click");
+      return;
+    }
+    
     console.log("Create Ride Request button clicked");
     
     if (!isAuthenticated) {
@@ -286,10 +433,8 @@ const FindRide = () => {
       return;
     }
 
-    // Get current search params from localStorage as backup
     const storedParams = JSON.parse(localStorage.getItem('searchParams') || '{}');
 
-    // Validate required data
     if (!searchCoordinates.from_lat || !searchCoordinates.from_lng || 
         !searchCoordinates.to_lat || !searchCoordinates.to_lng) {
       toast({
@@ -301,6 +446,7 @@ const FindRide = () => {
     }
 
     setIsCreatingRequest(true);
+    requestInProgress.current = true;
 
     try {
       const token = user?.token || localStorage.getItem('token') || '';
@@ -315,7 +461,17 @@ const FindRide = () => {
         return;
       }
 
-      // Prepare the request data
+      let travelTime = '10:00';
+      
+      if (additionalSearchParams.travel_time) {
+        travelTime = additionalSearchParams.travel_time;
+      } else if (timeOfDayFilter === 'night') {
+        travelTime = '20:00';
+      }
+
+      const preferenceIds = convertPreferencesToIds(searchPreferences);
+      console.log("Converted preference IDs:", preferenceIds);
+
       const requestData: CreateRideRequestData = {
         from_lat: searchCoordinates.from_lat,
         from_lng: searchCoordinates.from_lng,
@@ -323,16 +479,14 @@ const FindRide = () => {
         to_lat: searchCoordinates.to_lat,
         to_lng: searchCoordinates.to_lng,
         to_location_name: searchParams.to || searchCoordinates.to_location_name || 'Dropoff Location',
-        travel_date: searchParams.date || storedParams.date || new Date().toISOString().split('T')[0],
-        travel_time: timeOfDayFilter === 'night' ? '20:00' : '10:00',
-        seats_required: searchParams.seats || storedParams.seats || 1,
-        preferences: searchPreferences // Pass preferences from search
+        travel_date: searchParams.date || additionalSearchParams.travel_date || storedParams.date || new Date().toISOString().split('T')[0],
+        travel_time: travelTime,
+        seats_required: searchParams.seats || additionalSearchParams.seats_required || storedParams.seats || 1,
+        preferences: preferenceIds.length > 0 ? preferenceIds : undefined
       };
 
-      console.log("Sending ride request data:", requestData);
-      console.log("Preferences being sent:", searchPreferences);
+      console.log("Sending ride request data:", JSON.stringify(requestData, null, 2));
 
-      // Call the API to create ride request
       const response = await axios.post(
         `${BASE_URL}/api/rides/request`,
         requestData,
@@ -356,6 +510,10 @@ const FindRide = () => {
           description: apiMessage,
         });
         
+        localStorage.removeItem('searchResults');
+        localStorage.removeItem('searchParams');
+        localStorage.removeItem('searchCoordinates');
+        
         setTimeout(() => {
           navigate("/");
         }, 2000);
@@ -376,7 +534,7 @@ const FindRide = () => {
         if (err.response.status === 400) {
           toast({
             title: "Invalid request",
-            description: errorMessage,
+            description: err.response.data?.detail || errorMessage,
             variant: "destructive",
           });
         } else if (err.response.status === 401) {
@@ -387,9 +545,16 @@ const FindRide = () => {
           });
           navigate("/login");
         } else if (err.response.status === 422) {
+          let validationError = "Validation error";
+          if (err.response.data.errors) {
+            const errors = Object.entries(err.response.data.errors)
+              .map(([field, messages]) => `${field}: ${(messages as string[]).join(', ')}`)
+              .join('; ');
+            validationError = errors;
+          }
           toast({
             title: "Validation error",
-            description: errorMessage,
+            description: validationError,
             variant: "destructive",
           });
         } else {
@@ -414,6 +579,7 @@ const FindRide = () => {
       }
     } finally {
       setIsCreatingRequest(false);
+      requestInProgress.current = false;
     }
   };
 
@@ -455,12 +621,11 @@ const FindRide = () => {
     return "Search Results";
   };
 
-  // Show search preferences if available
   const renderSearchPreferences = () => {
     if (searchPreferences.length === 0) return null;
     
     return (
-      <div className="flex flex-wrap gap-1.5 mb-4">
+      <div className="flex flex-wrap gap-1.5 mb-4 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         <span className="text-xs text-gray-500">Search Preferences:</span>
         {searchPreferences.map((pref, index) => (
           <span 
@@ -523,15 +688,15 @@ const FindRide = () => {
                 Search Again
               </button>
               <button
-                onClick={handleCreateRideRequest}
-                disabled={isCreatingRequest}
+                onClick={handleCreateRideRequestWithIdCheck}
+                disabled={isCreatingRequest || requestInProgress.current || isCheckingIdProof}
                 className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors flex-1 ${
-                  isCreatingRequest 
+                  isCreatingRequest || requestInProgress.current || isCheckingIdProof
                     ? 'bg-[#21409A]/50 text-white cursor-not-allowed' 
                     : 'bg-[#21409A] text-white hover:bg-[#1a347d]'
                 }`}
               >
-                {isCreatingRequest ? 'Creating...' : 'Create Ride Request'}
+                {isCheckingIdProof ? 'Checking...' : (isCreatingRequest ? 'Creating...' : 'Create Ride Request')}
               </button>
             </div>
           </div>
@@ -542,7 +707,6 @@ const FindRide = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header with reduced padding */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto flex items-center gap-3 px-4 sm:px-6 lg:px-8">
           <button
@@ -564,10 +728,8 @@ const FindRide = () => {
         </div>
       </header>
 
-      {/* Show search preferences */}
       {renderSearchPreferences()}
 
-      {/* Day/Night Filter Section */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h2 className="text-sm font-medium text-gray-700">Filter by Time</h2>
@@ -622,15 +784,15 @@ const FindRide = () => {
                 Search Again
               </button>
               <button
-                onClick={handleCreateRideRequest}
-                disabled={isCreatingRequest}
+                onClick={handleCreateRideRequestWithIdCheck}
+                disabled={isCreatingRequest || requestInProgress.current || isCheckingIdProof}
                 className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isCreatingRequest 
+                  isCreatingRequest || requestInProgress.current || isCheckingIdProof
                     ? 'bg-[#21409A]/50 text-white cursor-not-allowed' 
                     : 'bg-[#21409A] text-white hover:bg-[#1a347d]'
                 }`}
               >
-                {isCreatingRequest ? 'Creating Request...' : 'Create Ride Request'}
+                {isCheckingIdProof ? 'Checking...' : (isCreatingRequest ? 'Creating Request...' : 'Create Ride Request')}
               </button>
             </div>
           </div>
@@ -661,18 +823,17 @@ const FindRide = () => {
               ))}
             </div>
 
-            {/* Create Ride Request Button - Shows when there are rides */}
             <div className="lg:hidden mt-4">
               <button
-                onClick={handleCreateRideRequest}
-                disabled={isCreatingRequest}
+                onClick={handleCreateRideRequestWithIdCheck}
+                disabled={isCreatingRequest || requestInProgress.current || isCheckingIdProof}
                 className={`w-full px-5 py-3 rounded-lg text-sm font-medium transition-colors ${
-                  isCreatingRequest 
+                  isCreatingRequest || requestInProgress.current || isCheckingIdProof
                     ? 'bg-[#21409A]/50 text-white cursor-not-allowed' 
                     : 'bg-[#21409A] text-white hover:bg-[#1a347d] shadow-md'
                 }`}
               >
-                {isCreatingRequest ? 'Creating Ride Request...' : 'Create Ride Request'}
+                {isCheckingIdProof ? 'Checking...' : (isCreatingRequest ? 'Creating Ride Request...' : 'Create Ride Request')}
               </button>
             </div>
 
@@ -693,7 +854,6 @@ const FindRide = () => {
               </div>
             )}
 
-            {/* Create Ride Request Button for Desktop - Shows when there are rides */}
             <div className="hidden lg:block lg:w-[360px]">
               <div className="sticky top-4">
                 <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
@@ -702,15 +862,15 @@ const FindRide = () => {
                     Create a ride request and get notified when drivers offer matching rides.
                   </p>
                   <button
-                    onClick={handleCreateRideRequest}
-                    disabled={isCreatingRequest}
+                    onClick={handleCreateRideRequestWithIdCheck}
+                    disabled={isCreatingRequest || requestInProgress.current || isCheckingIdProof}
                     className={`w-full px-5 py-3 rounded-lg text-sm font-medium transition-colors ${
-                      isCreatingRequest 
+                      isCreatingRequest || requestInProgress.current || isCheckingIdProof
                         ? 'bg-[#21409A]/50 text-white cursor-not-allowed' 
                         : 'bg-[#21409A] text-white hover:bg-[#1a347d] shadow-md'
                     }`}
                   >
-                    {isCreatingRequest ? 'Creating Ride Request...' : 'Create Ride Request'}
+                    {isCheckingIdProof ? 'Checking...' : (isCreatingRequest ? 'Creating Ride Request...' : 'Create Ride Request')}
                   </button>
                 </div>
               </div>
@@ -736,6 +896,91 @@ const FindRide = () => {
               onClose={handleClose}
               onSuccess={handleBookingSuccess}
             />
+          </div>
+        </div>
+      )}
+
+      {showIdProofPopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-lg">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
+                <svg 
+                  className="h-6 w-6 text-yellow-600" 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" 
+                  />
+                </svg>
+              </div>
+              
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                ID Proof Verification Required
+              </h3>
+              
+              <p className="text-gray-600 text-sm mb-6">
+                You need to verify your ID proof before requesting a ride. Please upload and verify your Aadhaar or Driving License.
+              </p>
+
+              <div className="space-y-4">
+                {userDocuments.length > 0 ? (
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-gray-700 mb-2">Your Documents:</p>
+                    <div className="space-y-2">
+                      {userDocuments.map((doc) => (
+                        <div 
+                          key={doc.id} 
+                          className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                        >
+                          <div>
+                            <span className="text-sm font-medium text-gray-700">
+                              {doc.documentType === 'aadhaar' ? 'Aadhaar' : 'Driving License'}
+                            </span>
+                            <p className="text-xs text-gray-500">
+                              {doc.documentNumber} • 
+                              <span className={`ml-1 ${
+                                doc.verificationStatus === 'verified' 
+                                  ? 'text-green-600' 
+                                  : doc.verificationStatus === 'pending'
+                                  ? 'text-yellow-600'
+                                  : 'text-red-600'
+                              }`}>
+                                {doc.verificationStatus.charAt(0).toUpperCase() + doc.verificationStatus.slice(1)}
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    No ID documents uploaded yet.
+                  </p>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                  <button
+                    onClick={() => setShowIdProofPopup(false)}
+                    className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleVerifyIdProof}
+                    className="flex-1 px-4 py-2.5 bg-[#21409A] text-white rounded-lg text-sm font-medium hover:bg-[#1a347d] transition-colors"
+                  >
+                    Verify ID Proof
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

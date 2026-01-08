@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, IndianRupee, Users, Calendar, Clock, Navigation, Loader2, Plus, ShieldAlert, Minus, AlertTriangle, CheckCircle } from 'lucide-react';
-import Navbar from '../layout/Navbar';
+
 
 const OfferRide3: React.FC = () => {
   const navigate = useNavigate();
@@ -501,7 +501,7 @@ const OfferRide3: React.FC = () => {
                   onClick={handleContinue}
                   className="w-full py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors text-sm"
                 >
-                  Continue to Publish Ride
+                  Continue
                 </button>
                 
                 <div className="text-center mt-2">

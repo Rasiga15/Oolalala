@@ -7,18 +7,18 @@ interface UserData {
   id?: number;
   phone: string;
   mobile_number?: string;
-  first_name?: string;
-  last_name?: string;
+  first_name?: string | null;
+  last_name?: string | null;
   email_address?: string;
-  gender?: string;
-  date_of_birth?: string;
+  gender?: string | null;
+  date_of_birth?: string | null;
   role?: 'rider' | 'partner' | 'both';
   isOnboarded: boolean;
   isGuest?: boolean;
   token?: string;
-  profile_image_url?: string;
+  profile_image_url?: string | null;
   wallet_balance?: string;
-  vehicle_category?: string;
+  vehicle_category?: string | null;
 }
 
 interface AuthContextType {
@@ -109,6 +109,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Helper function to handle null/undefined values
+  const safeValue = (value: any, defaultValue: string = ''): string => {
+    if (value === null || value === undefined || value === '') {
+      return defaultValue;
+    }
+    return String(value).trim();
+  };
+
+  // Helper function to generate default name
+  const generateDefaultName = () => {
+    return `New${Math.floor(Math.random() * 10000)}`;
+  };
+
   // Check for existing user data on mount
   useEffect(() => {
     const initializeAuth = async () => {
@@ -184,7 +197,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Login with PIN
+  // Login with PIN - UPDATED to handle null values
   const login = async (phone: string, pin: string): Promise<boolean> => {
     try {
       console.log('Attempting login with:', phone);
@@ -206,20 +219,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.accessToken && response.user) {
         const userData: UserData = {
           id: response.user.id,
-          phone: response.user.mobile_number,
-          mobile_number: response.user.mobile_number,
-          first_name: response.user.first_name,
-          last_name: response.user.last_name,
-          email_address: response.user.email_address,
-          gender: response.user.gender,
-          date_of_birth: response.user.date_of_birth,
-          role: response.user.role,
-          profile_image_url: response.user.profile_image_url,
-          wallet_balance: response.user.wallet_balance,
-          vehicle_category: response.user.vehicle_category,
+          phone: response.user.mobile_number || phone,
+          mobile_number: response.user.mobile_number || phone,
+          first_name: safeValue(response.user.first_name, generateDefaultName()),
+          last_name: safeValue(response.user.last_name, 'User'),
+          email_address: response.user.email_address || '',
+          gender: response.user.gender || null,
+          date_of_birth: response.user.date_of_birth || null,
+          role: response.user.role || 'rider',
+          profile_image_url: response.user.profile_image_url || null,
+          wallet_balance: response.user.wallet_balance || '0',
+          vehicle_category: response.user.vehicle_category || null,
           isOnboarded: response.user.is_onboarded || true,
           token: response.accessToken
         };
+
+        console.log('Parsed user data:', userData);
 
         setUser(userData);
         setIsAuthenticated(true);
@@ -230,8 +245,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('refreshToken', response.refreshToken || '');
         localStorage.removeItem('isGuest');
 
+        const displayName = userData.first_name || userData.phone;
         console.log('✅ Login successful');
-        toast.success(`Welcome , ${userData.first_name}!`);
+        toast.success(`Welcome!`);
         return true;
       }
       
@@ -256,7 +272,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Verify OTP and Register - FIXED: Ensure first_name and last_name are always provided
+  // Verify OTP and Register - FIXED: Handle null values properly
   const verifyOTPAndRegister = async (
     phone: string, 
     otp: string, 
@@ -266,32 +282,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       console.log('Registering user with:', { phone, otp, userData });
       
-      // Prepare registration data - ensure first_name and last_name are never null/undefined
+      // Prepare registration data with proper null handling
       const registrationData: any = {
-        first_name: '',
-        last_name: '',
         mobile_number: phone,
         otp_code: otp,
         pin_code: pin
       };
 
-      // Set first_name - use provided value or default
+      // Handle first_name - don't send if it's null or empty
       if (userData?.first_name && userData.first_name.trim()) {
         registrationData.first_name = userData.first_name.trim();
       } else {
-        registrationData.first_name = `New${Math.floor(Math.random() * 10000)}`;
+        // Don't send first_name at all if empty
+        // Backend will handle default value
       }
 
-      // Set last_name - use provided value or default
+      // Handle last_name - don't send if it's null or empty
       if (userData?.last_name && userData.last_name.trim()) {
         registrationData.last_name = userData.last_name.trim();
-      } else {
-        registrationData.last_name = 'User';
       }
 
       // Only include email if provided and not empty
       if (userData?.email_address && userData.email_address.trim()) {
         registrationData.email_address = userData.email_address.trim();
+      }
+
+      // Only include gender if provided and not empty
+      if (userData?.gender && userData.gender.trim()) {
+        registrationData.gender = userData.gender.trim();
       }
 
       console.log('Sending registration data:', registrationData);
@@ -304,7 +322,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Auto login after successful registration
         const loginSuccess = await login(phone, pin);
         if (loginSuccess) {
-          toast.success(`Welcome ${response.user.first_name}! Registration successful!`);
+          const displayName = response.user.first_name || phone;
+        
         } else {
           toast.success('Registration successful! Please login.');
         }
@@ -341,11 +360,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       console.log("Resetting PIN for:", { phone, otp, newPin });
       
-      // FIX: Ensure all required fields are provided
       const response = await apiRequest('/api/auth/reset-pin', 'POST', {
         identifier: phone,
         otp_code: otp,
-        new_pin_code: newPin  // Make sure this is not empty
+        new_pin_code: newPin
       });
 
       console.log('Reset PIN response:', response);
@@ -408,7 +426,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Fetch user profile from backend
+  // Fetch user profile from backend - UPDATED to handle null values
   const fetchUserProfile = async (): Promise<UserData | null> => {
     try {
       if (!user?.token) {
@@ -418,36 +436,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       console.log('🔍 Fetching user profile...');
       
-      // Update with actual API call when ready
-      // For now, return current user
+      try {
+        const response = await apiRequest('/api/profile', 'GET', undefined, user.token);
+        
+        if (response.user) {
+          const updatedUserData: UserData = {
+            ...user,
+            first_name: safeValue(response.user.first_name, user.first_name || generateDefaultName()),
+            last_name: safeValue(response.user.last_name, user.last_name || 'User'),
+            email_address: response.user.email_address || user.email_address || '',
+            gender: response.user.gender || user.gender || null,
+            date_of_birth: response.user.date_of_birth || user.date_of_birth || null,
+            profile_image_url: response.user.profile_image_url || user.profile_image_url || null,
+            wallet_balance: response.user.wallet_balance || user.wallet_balance || '0',
+            vehicle_category: response.user.vehicle_category || user.vehicle_category || null,
+          };
+          
+          setUser(updatedUserData);
+          localStorage.setItem('userData', JSON.stringify(updatedUserData));
+          console.log('✅ User profile updated:', updatedUserData);
+          return updatedUserData;
+        }
+      } catch (profileError) {
+        console.log('⚠️ Profile fetch failed, using cached data:', profileError);
+      }
+      
       return user;
       
     } catch (error: any) {
       console.error('Error fetching user profile:', error);
-      toast.error('Failed to fetch user profile');
       return user;
     }
   };
 
-  const logout = () => {
-    console.log('Logging out user');
-    
-    // Clear all auth-related data
-    setUser(null);
-    setIsAuthenticated(false);
-    setIsGuest(false);
-    
-    // Clear localStorage
-    localStorage.removeItem('userData');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('isGuest');
-    // Keep deviceId for future logins
-    
-    toast.success('Logged out successfully!');
-    console.log('✅ User logged out successfully');
-  };
-
+  // Update user data - UPDATED to handle null values
   const updateUser = (data: Partial<UserData>) => {
     if (user) {
       const updatedUser = { 
@@ -471,6 +493,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('Onboarding completed:', updatedUser);
       toast.success('Profile completed successfully!');
     }
+  };
+
+  const logout = () => {
+    console.log('Logging out user');
+    
+    // Clear all auth-related data
+    setUser(null);
+    setIsAuthenticated(false);
+    setIsGuest(false);
+    
+    // Clear localStorage
+    localStorage.removeItem('userData');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('isGuest');
+    // Keep deviceId for future logins
+    
+    toast.success('Logged out successfully!');
+    console.log('✅ User logged out successfully');
   };
 
   return (

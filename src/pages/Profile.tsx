@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
-import { FiChevronLeft, FiCheck, FiAlertCircle, FiX, FiInfo } from 'react-icons/fi';
-import { MdPerson, MdDirectionsCar, MdPhone, MdBadge, MdPeople, MdBusiness } from 'react-icons/md';
+import { FiChevronLeft, FiCheck, FiAlertCircle, FiX, FiInfo, FiSettings } from 'react-icons/fi';
+import { MdPerson, MdDirectionsCar, MdPhone, MdBadge, MdPeople, MdBusiness, MdLogout } from 'react-icons/md';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import ProfileApiService, { ProfileCompletionResponse } from '../services/profileApi';
@@ -75,7 +75,7 @@ interface SetupItem {
   icon: React.ReactNode;
   title: string;
   description: string;
-  status: 'verified' | 'pending' | 'required' | 'count' | 'not_uploaded';
+  status: 'verified' | 'pending' | 'required' | 'count' | 'not_uploaded' | 'settings';
   showCondition: 'always' | 'publishRide_true' | 'publishRide_false' | 'individual' | 'commercial';
   count?: number;
   verificationStatus?: 'verified' | 'pending' | 'rejected';
@@ -83,7 +83,7 @@ interface SetupItem {
 
 const Profile: React.FC = () => {
   const navigate = useNavigate();
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
   const { profileData: centralProfileData } = useProfile();
   
   const [profileImage, setProfileImage] = useState<string | null>(null);
@@ -266,6 +266,12 @@ const Profile: React.FC = () => {
     }
   };
 
+  // Handle account settings click
+  const handleAccountSettingsClick = () => {
+    // Navigate to account settings page
+    navigate('/account-settings');
+  };
+
   // All possible setup items
   const allSetupItems: SetupItem[] = [
     {
@@ -310,13 +316,22 @@ const Profile: React.FC = () => {
       status: 'count',
       showCondition: 'publishRide_true',
       count: driverCount
+    },
+    // New Account Settings Card
+    {
+      id: 'account-settings',
+      icon: <FiSettings size={20} />,
+      title: 'Account Settings',
+      description: 'Password, Privacy, Notification Preferences',
+      status: 'settings',
+      showCondition: 'always'
     }
   ];
 
   // Function to filter setup items based on publishRide status
   const getFilteredSetupItems = () => {
     if (!profileData) {
-      // If no profile data, show basic items
+      // If no profile data, show basic items plus account settings
       return allSetupItems.filter(item => 
         item.showCondition === 'always'
       );
@@ -339,9 +354,11 @@ const Profile: React.FC = () => {
   // Local calculation fallback
   const calculateLocalCompletionPercentage = () => {
     const filteredItems = getFilteredSetupItems();
+    // Exclude account settings from completion calculation
+    const itemsToCalculate = filteredItems.filter(item => item.id !== 'account-settings');
     let completedCount = 0;
     
-    filteredItems.forEach(item => {
+    itemsToCalculate.forEach(item => {
       if (item.id === 'id-proof') {
         if (item.verificationStatus === 'verified') {
           completedCount++;
@@ -351,10 +368,10 @@ const Profile: React.FC = () => {
       }
     });
     
-    return filteredItems.length > 0 ? Math.round((completedCount / filteredItems.length) * 100) : 0;
+    return itemsToCalculate.length > 0 ? Math.round((completedCount / itemsToCalculate.length) * 100) : 0;
   };
 
-  // Updated badge function
+  // Updated badge function to include settings
   const getStatusBadge = (
     status: SetupItem['status'], 
     count?: number, 
@@ -428,6 +445,14 @@ const Profile: React.FC = () => {
             {count || 0}
           </span>
         );
+      case 'settings':
+        return (
+          <span className="flex items-center gap-1 text-xs text-gray-600 bg-gray-50 px-2 py-1 rounded-full">
+            <FiSettings size={12} /> Manage
+          </span>
+        );
+      default:
+        return null;
     }
   };
 
@@ -438,7 +463,8 @@ const Profile: React.FC = () => {
       'id-proof': '/id-proof',
       'contact': '/contact-verification',
       'vehicle': '/vehicle-management',
-      'driver-management': '/drivers'
+      'driver-management': '/drivers',
+      'account-settings': '/account-settings'
     };
     
     const route = navigationMap[itemId];
@@ -578,6 +604,8 @@ const Profile: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+               
               </div>
             </div>
           </div>
@@ -625,6 +653,7 @@ const Profile: React.FC = () => {
                           item.status === 'count' ? (
                             item.id === 'driver-management' ? 'bg-purple-50 text-purple-600' : 'bg-blue-50 text-blue-600'
                           ) :
+                          item.status === 'settings' ? 'bg-gray-50 text-gray-600' :
                           'bg-gray-50 text-gray-600')
                     }`}>
                       <div className="scale-90 md:scale-100">

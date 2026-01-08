@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation } from 'react-icons/fi';
+import { FiMapPin, FiCalendar, FiUser, FiArrowRight, FiX, FiSearch, FiNavigation, FiUsers, FiChevronDown, FiChevronUp } from 'react-icons/fi';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -8,7 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import carImage from '../../assets/mainhome.svg';
 import { BASE_URL } from '@/config/api';
-import { fetchPreferences } from '../../services/settingsApi'; // Import fetchPreferences
+import { fetchPreferences } from '../../services/settingsApi';
 
 // Interface for place object
 interface Place {
@@ -44,10 +44,15 @@ export const HeroSection = () => {
   const [travelDate, setTravelDate] = useState<Date | null>(new Date());
   const [seats, setSeats] = useState(1);
   const [selectedPreferences, setSelectedPreferences] = useState<string[]>([]);
+  // NEW: State for ride type
+  const [rideType, setRideType] = useState<'shared' | 'full' | 'all'>('all');
   
   // State for available preferences from API
   const [availablePreferences, setAvailablePreferences] = useState<Preference[]>([]);
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
+  
+  // NEW: State for showing all preferences
+  const [showAllPreferences, setShowAllPreferences] = useState(false);
   
   // State for autocomplete suggestions
   const [fromSuggestions, setFromSuggestions] = useState<Place[]>([]);
@@ -70,20 +75,71 @@ export const HeroSection = () => {
     const loadPreferences = async () => {
       setIsLoadingPreferences(true);
       try {
-        const preferences = await fetchPreferences();
-        // Convert string array to Preference objects
-        const preferenceObjects = preferences.map((pref, index) => ({
-          id: `pref_${index}`,
-          name: pref
-        }));
-        setAvailablePreferences(preferenceObjects);
+        // Fetch preferences from your provided JSON structure
+        const response = await axios.get('your-api-endpoint-for-preferences'); // Replace with actual API
+        // For now, using your provided JSON structure directly
+        const preferencesData = {
+          "accessibility": [
+            { "id": 8, "text": "Extra Luggage Space" },
+            { "id": 7, "text": "Wheelchair Accessible" }
+          ],
+          "communication": [
+            { "id": 1, "text": "Email Updates" },
+            { "id": 3, "text": "Push Notifications" },
+            { "id": 2, "text": "SMS Alerts" }
+          ],
+          "general": [
+            { "id": 15, "text": "1 Luggage Per Person" },
+            { "id": 16, "text": "2 Luggage Per Person" },
+            { "id": 14, "text": "All Genders Welcome" },
+            { "id": 11, "text": "Child-Friendly" },
+            { "id": 10, "text": "Female Driver Preferred" },
+            { "id": 12, "text": "Female Passengers Only" },
+            { "id": 13, "text": "Male Passengers Only" },
+            { "id": 9, "text": "Pet-Friendly Ride" },
+            { "id": 18, "text": "Senior-Friendly Service" },
+            { "id": 17, "text": "Smoke-Free Vehicle" }
+          ],
+          "ride_comfort": [
+            { "id": 6, "text": "AC Temperature Control" },
+            { "id": 5, "text": "Conversation Welcome" },
+            { "id": 4, "text": "Silent Ride Preferred" }
+          ]
+        };
+        
+        // Combine all preferences from all categories
+        const allPreferences = [
+          ...preferencesData.accessibility.map(p => ({ id: p.id.toString(), name: p.text })),
+          ...preferencesData.communication.map(p => ({ id: p.id.toString(), name: p.text })),
+          ...preferencesData.general.map(p => ({ id: p.id.toString(), name: p.text })),
+          ...preferencesData.ride_comfort.map(p => ({ id: p.id.toString(), name: p.text }))
+        ];
+        
+        setAvailablePreferences(allPreferences);
       } catch (error) {
         console.error('Error loading preferences:', error);
         // Fallback to default preferences
         setAvailablePreferences([
           { id: 'pref_1', name: 'Ladies only' },
           { id: 'pref_2', name: 'Senior Citizen' },
-          { id: 'pref_3', name: 'Kids friendly' }
+          { id: 'pref_3', name: 'Kids friendly' },
+          { id: 'pref_4', name: 'Child-Friendly' },
+          { id: 'pref_5', name: 'Female Driver Preferred' },
+          { id: 'pref_6', name: 'Male Passengers Only' },
+          { id: 'pref_7', name: 'Pet-Friendly Ride' },
+          { id: 'pref_8', name: 'Senior-Friendly Service' },
+          { id: 'pref_9', name: 'Smoke-Free Vehicle' },
+          { id: 'pref_10', name: '1 Luggage Per Person' },
+          { id: 'pref_11', name: '2 Luggage Per Person' },
+          { id: 'pref_12', name: 'Extra Luggage Space' },
+          { id: 'pref_13', name: 'Wheelchair Accessible' },
+          { id: 'pref_14', name: 'AC Temperature Control' },
+          { id: 'pref_15', name: 'Conversation Welcome' },
+          { id: 'pref_16', name: 'Silent Ride Preferred' },
+          { id: 'pref_17', name: 'Email Updates' },
+          { id: 'pref_18', name: 'SMS Alerts' },
+          { id: 'pref_19', name: 'Push Notifications' },
+          { id: 'pref_20', name: 'All Genders Welcome' }
         ]);
       } finally {
         setIsLoadingPreferences(false);
@@ -275,6 +331,16 @@ export const HeroSection = () => {
     );
   };
   
+  // NEW: Handle ride type selection
+  const handleRideTypeSelect = (type: 'shared' | 'full' | 'all') => {
+    setRideType(type);
+  };
+  
+  // NEW: Toggle show all preferences
+  const handleToggleShowAllPreferences = () => {
+    setShowAllPreferences(!showAllPreferences);
+  };
+  
   // Validate location coordinates
   const isValidCoordinate = (coord: number | undefined): boolean => {
     if (coord === undefined || coord === null) return false;
@@ -310,9 +376,34 @@ export const HeroSection = () => {
   
   // Map preference names to IDs for API
   const getPreferenceIds = (prefNames: string[]): number[] => {
-    // This should map preference names to IDs based on your API
-    // For now, return placeholder IDs
-    return prefNames.map((pref, index) => index + 1);
+    // Mapping preference names to IDs based on your API response
+    const preferenceMapping: { [key: string]: number } = {
+      "Extra Luggage Space": 8,
+      "Wheelchair Accessible": 7,
+      "Email Updates": 1,
+      "Push Notifications": 3,
+      "SMS Alerts": 2,
+      "1 Luggage Per Person": 15,
+      "2 Luggage Per Person": 16,
+      "All Genders Welcome": 14,
+      "Child-Friendly": 11,
+      "Female Driver Preferred": 10,
+      "Female Passengers Only": 12,
+      "Male Passengers Only": 13,
+      "Pet-Friendly Ride": 9,
+      "Senior-Friendly Service": 18,
+      "Smoke-Free Vehicle": 17,
+      "AC Temperature Control": 6,
+      "Conversation Welcome": 5,
+      "Silent Ride Preferred": 4,
+      "Ladies only": 12,
+      "Senior Citizen": 18,
+      "Kids friendly": 11,
+    };
+    
+    return prefNames
+      .map(pref => preferenceMapping[pref])
+      .filter(id => id !== undefined && id !== 0);
   };
   
   // Search rides API call
@@ -378,8 +469,10 @@ export const HeroSection = () => {
       params.append('date', formattedDate);
       params.append('no_of_seat', seats.toString());
       
-      // Optional parameters with defaults
-      params.append('is_full_car', 'false');
+      // NEW: Add ride_type parameter
+      params.append('ride_type', rideType);
+      
+      // Optional parameters
       params.append('sort_by', 'time_asc');
       params.append('page', '1');
       params.append('limit', '10');
@@ -396,13 +489,19 @@ export const HeroSection = () => {
         params.append('to_short_location', toShort);
       }
       
-      // Add preferences if any - send as comma-separated string
+      // Add preferences if any - send as comma-separated string of IDs
       if (selectedPreferences.length > 0) {
-        params.append('preferences', selectedPreferences.join(','));
+        const preferenceIds = getPreferenceIds(selectedPreferences);
+        if (preferenceIds.length > 0) {
+          // Send preference IDs as comma-separated string
+          params.append('preferences', preferenceIds.join(','));
+          console.log('Sending preference IDs:', preferenceIds);
+        }
       }
       
       console.log('API Request URL:', `${BASE_URL}/api/rides/search?${params.toString()}`);
       console.log('Selected Preferences:', selectedPreferences);
+      console.log('Ride Type:', rideType); // Log ride type
       
       const response = await axios.get(`${BASE_URL}/api/rides/search`, {
         params: Object.fromEntries(params),
@@ -429,6 +528,7 @@ export const HeroSection = () => {
             to: toLocation,
             date: travelDate,
             seats,
+            rideType, // Save ride type
             preferences: selectedPreferences
           }));
           
@@ -447,6 +547,7 @@ export const HeroSection = () => {
               searchResults: response.data,
               searchParams: Object.fromEntries(params),
               searchCoordinates: searchCoordinates,
+              rideType, // Pass ride type
               preferences: selectedPreferences
             } 
           });
@@ -515,6 +616,10 @@ export const HeroSection = () => {
     </div>
   );
 
+  // Get first 3 preferences to show initially
+  const initialPreferences = availablePreferences.slice(0, 3);
+  const remainingPreferences = availablePreferences.slice(3);
+
   return (
     <section className="relative bg-white pt-16 lg:pt-20 pb-16 md:pb-20 lg:pb-24">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
@@ -558,6 +663,61 @@ export const HeroSection = () => {
         {/* SEARCH FORM */}
         <div className="relative mt-6 lg:mt-8" ref={searchFormRef}>
           <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-3 sm:p-4 max-w-7xl mx-auto relative z-20">
+            
+            {/* NEW: Ride Type Selection - Add this section */}
+            <div className="mb-3 sm:mb-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="text-xs text-gray-500">Ride Type:</span>
+                <div className="flex items-center gap-1 sm:gap-2">
+                  {/* Shared Ride Button */}
+                  <button
+                    onClick={() => handleRideTypeSelect('shared')}
+                    className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+                      rideType === 'shared'
+                        ? 'bg-green-50 border-green-300 text-green-700'
+                        : 'border-gray-200 text-gray-700 hover:border-green-400 hover:text-green-700'
+                    }`}
+                  >
+                    <FiUsers size={10} className="sm:size-[12px]" />
+                    Shared
+                  </button>
+                  
+                  {/* Full Car Button */}
+                  <button
+                    onClick={() => handleRideTypeSelect('full')}
+                    className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+                      rideType === 'full'
+                        ? 'bg-purple-50 border-purple-300 text-purple-700'
+                        : 'border-gray-200 text-gray-700 hover:border-purple-400 hover:text-purple-700'
+                    }`}
+                  >
+                    <FiUser size={10} className="sm:size-[12px]" />
+                    Full Car
+                  </button>
+                  
+                  {/* All Button */}
+                  <button
+                    onClick={() => handleRideTypeSelect('all')}
+                    className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+                      rideType === 'all'
+                        ? 'bg-blue-50 border-blue-300 text-blue-700'
+                        : 'border-gray-200 text-gray-700 hover:border-blue-400 hover:text-blue-700'
+                    }`}
+                  >
+                    <FiUsers size={10} className="sm:size-[12px]" />
+                    <FiUser size={10} className="sm:size-[12px]" />
+                    All
+                  </button>
+                </div>
+              </div>
+              
+              {/* Ride Type Description */}
+              <div className="mt-1 text-[10px] sm:text-xs text-gray-400">
+                {rideType === 'shared' && 'Find shared rides where you split the cost with other passengers'}
+                {rideType === 'full' && 'Book the entire vehicle for yourself or your group'}
+                {rideType === 'all' && 'Show both shared rides and full car options'}
+              </div>
+            </div>
             
             {/* MAIN FORM ROW */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 items-center">
@@ -740,25 +900,87 @@ export const HeroSection = () => {
               </div>
             )}
 
-            {/* Filters - Preferences */}
-            <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-3 sm:mt-4">
+            {/* Filters - Preferences (Optional) */}
+            <div className="mt-3 sm:mt-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-2">
+                <span className="text-xs text-gray-500 mr-1">Preferences</span>
+                {isLoadingPreferences && (
+                  <div className="text-xs text-gray-500">Loading...</div>
+                )}
+              </div>
+              
               {isLoadingPreferences ? (
                 <div className="text-xs text-gray-500">Loading preferences...</div>
               ) : (
-                availablePreferences.map((preference) => (
-                  <button 
-                    key={preference.id}
-                    onClick={() => handlePreferenceToggle(preference.name)}
-                    className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
-                      selectedPreferences.includes(preference.name) 
-                        ? 'bg-blue-50 border-blue-300 text-blue-700'
-                        : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
-                    }`}
-                  >
-                    {getPreferenceEmoji(preference.name)} {preference.name}
-                    {selectedPreferences.includes(preference.name) && <FiX size={8} className="sm:size-[10px]" />}
-                  </button>
-                ))
+                <>
+                  {/* First 3 preferences - always visible */}
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    {initialPreferences.map((preference) => (
+                      <button 
+                        key={preference.id}
+                        onClick={() => handlePreferenceToggle(preference.name)}
+                        className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+                          selectedPreferences.includes(preference.name) 
+                            ? 'bg-[#21409A] border-[#21409A] text-white' // Dark blue when selected
+                            : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
+                        }`}
+                      >
+                        {getPreferenceEmoji(preference.name)} {preference.name}
+                        {selectedPreferences.includes(preference.name) && <FiX size={8} className="sm:size-[10px]" />}
+                      </button>
+                    ))}
+                    
+                    {/* More button to expand/collapse */}
+                    {remainingPreferences.length > 0 && (
+                      <button
+                        onClick={handleToggleShowAllPreferences}
+                        className="rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs border border-gray-300 text-gray-600 hover:border-[#21409A] hover:text-[#21409A] hover:bg-[#21409A]/5 transition-all flex items-center gap-1"
+                      >
+                        {showAllPreferences ? (
+                          <>
+                            <FiChevronUp size={8} className="sm:size-[10px]" />
+                            Less
+                          </>
+                        ) : (
+                          <>
+                            <FiChevronDown size={8} className="sm:size-[10px]" />
+                            More ({remainingPreferences.length})
+                          </>
+                        )}
+                      </button>
+                    )}
+                    
+                    {/* Clear All Preferences Button */}
+                    {selectedPreferences.length > 0 && (
+                      <button
+                        onClick={() => setSelectedPreferences([])}
+                        className="rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs border border-gray-300 text-gray-600 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Remaining preferences - shown when expanded */}
+                  {showAllPreferences && remainingPreferences.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      {remainingPreferences.map((preference) => (
+                        <button 
+                          key={preference.id}
+                          onClick={() => handlePreferenceToggle(preference.name)}
+                          className={`rounded-full px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs flex items-center gap-1 transition-all border ${
+                            selectedPreferences.includes(preference.name) 
+                              ? 'bg-[#21409A] border-[#21409A] text-white' // Dark blue when selected
+                              : 'border-gray-200 text-gray-700 hover:border-[#21409A] hover:text-[#21409A]'
+                          }`}
+                        >
+                          {getPreferenceEmoji(preference.name)} {preference.name}
+                          {selectedPreferences.includes(preference.name) && <FiX size={8} className="sm:size-[10px]" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
             
@@ -767,10 +989,18 @@ export const HeroSection = () => {
               <div className="mt-2 sm:mt-3 text-xs text-gray-500 flex items-center gap-1 flex-wrap">
                 <span className="font-medium">Selected:</span>
                 {selectedPreferences.map(pref => (
-                  <span key={pref} className="bg-blue-100 px-1.5 py-0.5 rounded text-xs text-blue-700">
+                  <span key={pref} className="bg-[#21409A]/10 px-1.5 py-0.5 rounded text-xs text-[#21409A] border border-[#21409A]/20">
                     {pref}
                   </span>
                 ))}
+                <span className="text-gray-400">({selectedPreferences.length} selected)</span>
+              </div>
+            )}
+            
+            {/* Info Message about preferences */}
+            {selectedPreferences.length === 0 && (
+              <div className="mt-2 sm:mt-3 text-xs text-gray-400 italic">
+                Preferences are optional. You can search without selecting any.
               </div>
             )}
             
@@ -795,6 +1025,15 @@ export const HeroSection = () => {
                 )}
               </div>
             )}
+            
+            {/* Ride Type Info */}
+            <div className="mt-2 text-xs text-gray-400">
+              Current selection: <span className="font-medium">
+                {rideType === 'shared' && 'Shared Rides'}
+                {rideType === 'full' && 'Full Car'}
+                {rideType === 'all' && 'All Ride Types'}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -805,18 +1044,32 @@ export const HeroSection = () => {
 // Helper function to get emoji for preference
 const getPreferenceEmoji = (preference: string): string => {
   const emojiMap: Record<string, string> = {
-    'Ladies only': '👩',
-    'Senior Citizen': '🧓',
+    'Child-Friendly': '👶',
     'Kids friendly': '👶',
-    'Kids Only': '👧👦',
-    'Senior Citizens': '👵👴',
-    'Students only': '🎓',
-    'Professionals only': '💼',
-    'No Smoking': '🚭',
-    'No Pets': '🚫🐾',
-    'AC Preferred': '❄️',
-    'Music Allowed': '🎵',
-    'Quiet Ride': '🤫'
+    'Female Driver Preferred': '👩‍✈️',
+    'Female Passengers Only': '👩‍👩‍👧‍👧',
+    'Male Passengers Only': '👨‍👨‍👦‍👦',
+    'All Genders Welcome': '👨‍👩‍👧‍👦',
+    'Pet-Friendly Ride': '🐾',
+    'Senior-Friendly Service': '🧓',
+    'Senior Citizen': '🧓',
+    'Smoke-Free Vehicle': '🚭',
+    '1 Luggage Per Person': '🧳',
+    '2 Luggage Per Person': '🧳🧳',
+    'Extra Luggage Space': '📦',
+    'Wheelchair Accessible': '♿',
+    'AC Temperature Control': '❄️',
+    'Conversation Welcome': '💬',
+    'Silent Ride Preferred': '🤫',
+    'Email Updates': '📧',
+    'SMS Alerts': '📱',
+    'Push Notifications': '🔔',
+    'Ladies only': '👩',
+    'Extra Luggage Space': '📦',
+    'Wheelchair Accessible': '♿',
+    'Pet-Friendly Ride': '🐕',
+    'Smoke-Free Vehicle': '🚭',
+    'AC Temperature Control': '❄️'
   };
   
   return emojiMap[preference] || '✨';

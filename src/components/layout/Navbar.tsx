@@ -304,7 +304,7 @@ export const Navbar: React.FC = () => {
             </button>
             
             {/* MY BOOKING LINK - Desktop */}
-           <button 
+            <button 
               onClick={() => {
                 closeAll();
                 navigate('/my-bookings');
@@ -313,6 +313,18 @@ export const Navbar: React.FC = () => {
             >
               <FiCalendar size={20} />
               <span>My Booking</span>
+            </button>
+            
+            {/* RESERVATION LINK - Desktop */}
+            <button 
+              onClick={() => {
+                closeAll();
+                navigate('/reserve-list');
+              }}
+              className={getNavLinkClass('/reserve-list')}
+            >
+              <FiCalendar size={20} />
+              <span>Reservation</span>
             </button>
             
             {/* WALLET LINK - Desktop */}
@@ -351,11 +363,11 @@ export const Navbar: React.FC = () => {
                 
                 {/* USER PROFILE - Desktop */}
                 <div className="hidden md:flex items-center gap-3 relative">
-                  <div className="text-right">
+                  {/* <div className="text-right">
                     <p className="text-sm font-semibold text-gray-800">
                       {getUserDisplayName()}
                     </p>
-                  </div>
+                  </div> */}
                   
                   {/* User profile icon with dropdown */}
                   <div className="relative">
@@ -401,8 +413,6 @@ export const Navbar: React.FC = () => {
                           <span>Profile</span>
                         </button>
                         
-                      
-                   
                         <div className="border-t border-gray-100 my-1"></div>
                         <button 
                           onClick={() => {
@@ -525,6 +535,17 @@ export const Navbar: React.FC = () => {
               className={getMobileNavLinkClass('/my-bookings')}
             >
               <FiCalendar size={20} /> My Booking
+            </button>
+            
+            {/* RESERVATION LINK - Mobile */}
+            <button 
+              onClick={() => {
+                closeAll();
+                navigate('/reserve-list');
+              }}
+              className={getMobileNavLinkClass('/reserve-list')}
+            >
+              <FiCalendar size={20} /> Reservation
             </button>
             
             {/* WALLET LINK - Mobile */}

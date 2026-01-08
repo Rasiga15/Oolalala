@@ -1,4 +1,4 @@
-// src/pages/offer-ride/OfferRide2.tsx - UPDATED WITH IMMEDIATE STOP NAME UPDATES
+// src/pages/offer-ride/OfferRide2.tsx - UPDATED WITH IMMEDIATE STOP NAME UPDATES AND ADDRESS HANDLING
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CircleArrowRight, RefreshCw, Plus, MapPin, ArrowLeft, Navigation, AlertCircle, Trash2, Info, X, Map, Route, ChevronRight, Ban, Maximize2, Minimize2, Search, Locate } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -141,34 +141,66 @@ const isCoordinateString = (text: string): boolean => {
   return coordinatePattern.test(text);
 };
 
-// Extract best location name from address components
+// Extract best location name from address components - IMPROVED TO GET CITY/TOWN NAME
 const extractBestLocationName = (addressComponents: any[]): string => {
   if (!addressComponents || addressComponents.length === 0) return '';
 
-  // Priority order for location types
+  // Priority order for location types (city/town focused)
   const priorityTypes = [
-    'locality',          // City/Town
-    'sublocality',       // Suburb/Neighborhood
-    'administrative_area_level_2', // District
-    'neighborhood',      // Neighborhood
-    'route',             // Road/Street
+    'locality',                    // City/Town
+    'administrative_area_level_3', // City/Town
+    'sublocality_level_1',         // Large district within city
+    'sublocality',                 // Suburb/Neighborhood
+    'administrative_area_level_2', // District/County
+    'postal_town',                 // Postal town
+    'neighborhood',                // Neighborhood
+    'route',                       // Road/Street
     'administrative_area_level_1', // State
-    'postal_town',       // Postal town
   ];
 
-  // Try to find the most specific type first
-  for (const type of priorityTypes) {
-    for (const component of addressComponents) {
-      const types = component.types || [];
-      const longName = component.long_name || '';
+  // First, try to get city/town name
+  for (const component of addressComponents) {
+    const types = component.types || [];
+    const longName = component.long_name || '';
 
-      if (types.includes(type) && longName && !isCoordinateString(longName)) {
-        return longName;
-      }
+    // Look for city/town indicators
+    if ((types.includes('locality') || 
+         types.includes('administrative_area_level_3') || 
+         types.includes('postal_town')) && 
+        longName && 
+        !isCoordinateString(longName) && 
+        !/^\d+$/.test(longName)) {
+      return longName;
     }
   }
 
-  // Fallback: Return the first non-coordinate, non-numeric component
+  // If no city found, try to get suburb/neighborhood
+  for (const component of addressComponents) {
+    const types = component.types || [];
+    const longName = component.long_name || '';
+
+    if ((types.includes('sublocality') || 
+         types.includes('sublocality_level_1') || 
+         types.includes('neighborhood')) && 
+        longName && 
+        !isCoordinateString(longName)) {
+      return longName;
+    }
+  }
+
+  // If still nothing, try to get district/county
+  for (const component of addressComponents) {
+    const types = component.types || [];
+    const longName = component.long_name || '';
+
+    if (types.includes('administrative_area_level_2') && 
+        longName && 
+        !isCoordinateString(longName)) {
+      return longName;
+    }
+  }
+
+  // Last resort: Return the first non-coordinate, non-numeric component
   for (const component of addressComponents) {
     const longName = component.long_name || '';
     if (longName && !isCoordinateString(longName) && !/^\d+$/.test(longName)) {
@@ -179,22 +211,22 @@ const extractBestLocationName = (addressComponents: any[]): string => {
   return '';
 };
 
-// Extract city name from full address
+// Extract city name from full address - SIMPLIFIED TO GET MAIN LOCATION NAME
 const extractCityFromAddress = (fullAddress: string): string => {
   if (!fullAddress) return '';
 
   const parts = fullAddress.split(',');
 
-  // Try to find city name (usually the first part)
+  // Look for city/town name (usually one of the first 3 parts)
   for (let i = 0; i < Math.min(parts.length, 3); i++) {
     const part = parts[i].trim();
 
-    // Skip if it's a coordinate or empty
+    // Skip if it's empty, coordinate, or numeric
     if (!part || isCoordinateString(part) || /^\d+$/.test(part)) {
       continue;
     }
 
-    // Skip country/state/district indicators
+    // Skip obvious non-city parts
     const lowerPart = part.toLowerCase();
     if (
       lowerPart.includes('india') ||
@@ -202,144 +234,141 @@ const extractCityFromAddress = (fullAddress: string): string => {
       lowerPart.includes('state') ||
       lowerPart.includes('country') ||
       lowerPart.includes('pin ') ||
-      lowerPart.includes('postal code')
+      lowerPart.includes('pincode') ||
+      lowerPart.includes('postal code') ||
+      lowerPart.includes('post office')
     ) {
       continue;
     }
 
-    // Check if it's a reasonable city name (2-30 characters)
+    // Check if it looks like a city/town name
     if (part.length >= 2 && part.length <= 30) {
       return part;
     }
   }
 
-  // Return first meaningful part
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (trimmed && !isCoordinateString(trimmed) && trimmed.length >= 2) {
-      return trimmed;
+  // If we couldn't find a good city name, return the first meaningful part
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i].trim();
+    if (part && !isCoordinateString(part) && part.length >= 2) {
+      // Try to clean up the part
+      const cleanPart = part.replace(/[0-9]/g, '').trim();
+      if (cleanPart.length >= 2) {
+        return cleanPart;
+      }
+      return part;
     }
   }
 
   return '';
 };
 
-// Get accurate location name from coordinates - UPDATED WITH CACHING FOR BETTER PERFORMANCE
-const getAccurateLocationName = async (lat: number, lng: number): Promise<{ name: string, address: string }> => {
+// Get accurate location data from coordinates - IMPROVED WITH BETTER CITY DETECTION
+const getAccurateLocationData = async (lat: number, lng: number): Promise<{ 
+  displayName: string;  // For UI display (city/town name)
+  fullAddress: string;  // Full address for backend
+  coordinates: { lat: number; lng: number }
+}> => {
   const cacheKey = `${lat.toFixed(6)}_${lng.toFixed(6)}`;
 
   // Check cache first
-  if (window.locationNameCache && window.locationNameCache[cacheKey]) {
-    return window.locationNameCache[cacheKey];
+  if (window.locationDataCache && window.locationDataCache[cacheKey]) {
+    return window.locationDataCache[cacheKey];
   }
 
   try {
-    // First try using reverse geocoding with detailed result_type
+    // First try to get detailed geocoding information with specific result types
+    const detailedResponse = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyCsWQJdiuPGmabvpX-_4FhyC9C5GKu3TLk&language=en&result_type=locality|sublocality|administrative_area_level_2|administrative_area_level_3|neighborhood|route`
+    );
+
+    if (detailedResponse.ok) {
+      const detailedData = await detailedResponse.json();
+
+      if (detailedData.status === 'OK' && detailedData.results && detailedData.results.length > 0) {
+        const result = detailedData.results[0];
+        const addressComponents = result.address_components || [];
+        const fullAddress = result.formatted_address || '';
+
+        // Try to extract best display name from address components
+        const bestDisplayName = extractBestLocationName(addressComponents);
+
+        if (bestDisplayName && bestDisplayName !== '') {
+          const locationData = {
+            displayName: bestDisplayName,
+            fullAddress: fullAddress,
+            coordinates: { lat, lng }
+          };
+
+          // Cache the result
+          if (!window.locationDataCache) {
+            window.locationDataCache = {};
+          }
+          window.locationDataCache[cacheKey] = locationData;
+
+          return locationData;
+        }
+
+        // If no good name from components, try to extract from formatted address
+        const cityName = extractCityFromAddress(fullAddress);
+
+        if (cityName && cityName !== '') {
+          const locationData = {
+            displayName: cityName,
+            fullAddress: fullAddress,
+            coordinates: { lat, lng }
+          };
+
+          // Cache the result
+          if (!window.locationDataCache) {
+            window.locationDataCache = {};
+          }
+          window.locationDataCache[cacheKey] = locationData;
+
+          return locationData;
+        }
+      }
+    }
+
+    // Fallback: Use reverse geocoding
     const reverseResults = await reverseGeocode(lat, lng);
 
     if (reverseResults.length > 0) {
       const fullAddress = reverseResults[0].formattedAddress || '';
-
-      // Try to get detailed geocoding information
-      const detailedResponse = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyCsWQJdiuPGmabvpX-_4FhyC9C5GKu3TLk&language=en&result_type=locality|sublocality|administrative_area_level_2|neighborhood|route`
-      );
-
-      if (detailedResponse.ok) {
-        const detailedData = await detailedResponse.json();
-
-        if (detailedData.status === 'OK' && detailedData.results && detailedData.results.length > 0) {
-          const result = detailedData.results[0];
-          const addressComponents = result.address_components || [];
-
-          // Try to extract best name from address components
-          const bestName = extractBestLocationName(addressComponents);
-
-          if (bestName && bestName !== '') {
-            const locationData = {
-              name: bestName,
-              address: fullAddress
-            };
-
-            // Cache the result
-            if (!window.locationNameCache) {
-              window.locationNameCache = {};
-            }
-            window.locationNameCache[cacheKey] = locationData;
-
-            return locationData;
-          }
-
-          // If no good name from components, try to extract from formatted address
-          const formattedAddress = result.formatted_address || fullAddress;
-          const cityName = extractCityFromAddress(formattedAddress);
-
-          if (cityName && cityName !== '') {
-            const locationData = {
-              name: cityName,
-              address: formattedAddress
-            };
-
-            // Cache the result
-            if (!window.locationNameCache) {
-              window.locationNameCache = {};
-            }
-            window.locationNameCache[cacheKey] = locationData;
-
-            return locationData;
-          }
-        }
-      }
-
-      // Fallback: Extract city name from full address
       const cityName = extractCityFromAddress(fullAddress);
-      if (cityName && cityName !== '') {
-        const locationData = {
-          name: cityName,
-          address: fullAddress
-        };
 
-        // Cache the result
-        if (!window.locationNameCache) {
-          window.locationNameCache = {};
-        }
-        window.locationNameCache[cacheKey] = locationData;
+      const displayName = cityName && cityName !== '' ? cityName : fullAddress.split(',')[0].trim();
 
-        return locationData;
+      const locationData = {
+        displayName: displayName,
+        fullAddress: fullAddress,
+        coordinates: { lat, lng }
+      };
+
+      // Cache the result
+      if (!window.locationDataCache) {
+        window.locationDataCache = {};
       }
+      window.locationDataCache[cacheKey] = locationData;
 
-      // Last resort: Return first part of address
-      const firstPart = fullAddress.split(',')[0].trim();
-      if (firstPart && !isCoordinateString(firstPart)) {
-        const locationData = {
-          name: firstPart,
-          address: fullAddress
-        };
-
-        // Cache the result
-        if (!window.locationNameCache) {
-          window.locationNameCache = {};
-        }
-        window.locationNameCache[cacheKey] = locationData;
-
-        return locationData;
-      }
+      return locationData;
     }
   } catch (error) {
-    console.error('Error getting accurate location name:', error);
+    console.error('Error getting accurate location data:', error);
   }
 
   // Fallback to coordinates if everything fails
   const fallbackData = {
-    name: `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-    address: `Latitude: ${lat.toFixed(6)}, Longitude: ${lng.toFixed(6)}`
+    displayName: `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+    fullAddress: `Latitude: ${lat.toFixed(6)}, Longitude: ${lng.toFixed(6)}`,
+    coordinates: { lat, lng }
   };
 
   // Cache even the fallback
-  if (!window.locationNameCache) {
-    window.locationNameCache = {};
+  if (!window.locationDataCache) {
+    window.locationDataCache = {};
   }
-  window.locationNameCache[cacheKey] = fallbackData;
+  window.locationDataCache[cacheKey] = fallbackData;
 
   return fallbackData;
 };
@@ -347,7 +376,11 @@ const getAccurateLocationName = async (lat: number, lng: number): Promise<{ name
 // Add type for window cache
 declare global {
   interface Window {
-    locationNameCache?: Record<string, { name: string, address: string }>;
+    locationDataCache?: Record<string, { 
+      displayName: string; 
+      fullAddress: string;
+      coordinates: { lat: number; lng: number }
+    }>;
   }
 }
 
@@ -422,8 +455,8 @@ const ManualStopSearchModal: React.FC<{
 
   const handleConfirm = async () => {
     if (selectedPlace && validation.isValid) {
-      // Get accurate name from coordinates
-      const accurateName = await getAccurateLocationName(
+      // Get accurate location data from coordinates
+      const accurateData = await getAccurateLocationData(
         selectedPlace.location.lat,
         selectedPlace.location.lng
       );
@@ -431,8 +464,8 @@ const ManualStopSearchModal: React.FC<{
       onConfirm({
         stopId: Date.now(),
         type: 'STOP',
-        name: accurateName.name, // Use accurate name
-        address: accurateName.address, // Use accurate address
+        name: accurateData.displayName,      // City/town name for UI
+        address: accurateData.fullAddress,   // Full address for backend
         lat: selectedPlace.location.lat,
         lng: selectedPlace.location.lng
       });
@@ -632,65 +665,65 @@ const ManualStopSearchModal: React.FC<{
   );
 };
 
-// Add Stop Modal Component - FIXED WITH IMMEDIATE UPDATES
+// Add Stop Modal Component - UPDATED WITH ADDRESS HANDLING
 const AddStopModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (stopData: StopPoint) => void;
   position: { lat: number; lng: number } | null;
-  address: string;
+  fullAddress: string;
   isValid: boolean;
   validationMessage: string;
   isFullCar: boolean;
-}> = ({ isOpen, onClose, onConfirm, position, address, isValid, validationMessage, isFullCar }) => {
-  const [stopName, setStopName] = useState('');
-  const [loadingName, setLoadingName] = useState(false);
-  const [hasFetchedName, setHasFetchedName] = useState(false);
+}> = ({ isOpen, onClose, onConfirm, position, fullAddress, isValid, validationMessage, isFullCar }) => {
+  const [displayName, setDisplayName] = useState('');
+  const [loadingData, setLoadingData] = useState(false);
+  const [hasFetchedData, setHasFetchedData] = useState(false);
 
-  // Fetch accurate name immediately when modal opens
+  // Fetch accurate location data immediately when modal opens
   useEffect(() => {
-    const fetchAccurateName = async () => {
-      if (position && !hasFetchedName) {
-        setLoadingName(true);
+    const fetchAccurateData = async () => {
+      if (position && !hasFetchedData) {
+        setLoadingData(true);
         try {
-          const accurateName = await getAccurateLocationName(position.lat, position.lng);
-          // IMMEDIATE STATE UPDATE - This will trigger re-render
-          setStopName(accurateName.name);
-          setHasFetchedName(true);
+          const accurateData = await getAccurateLocationData(position.lat, position.lng);
+          // IMMEDIATE STATE UPDATE
+          setDisplayName(accurateData.displayName);
+          setHasFetchedData(true);
         } catch (error) {
-          console.error('Error fetching accurate name:', error);
+          console.error('Error fetching accurate location data:', error);
           // Try to extract city name from address as fallback
-          const cityName = extractCityFromAddress(address);
-          setStopName(cityName || 'Stop');
-          setHasFetchedName(true);
+          const cityName = extractCityFromAddress(fullAddress);
+          setDisplayName(cityName || 'Stop');
+          setHasFetchedData(true);
         } finally {
-          setLoadingName(false);
+          setLoadingData(false);
         }
       }
     };
 
     if (isOpen && position) {
-      fetchAccurateName();
+      fetchAccurateData();
     }
 
     // Reset when modal closes
     return () => {
       if (!isOpen) {
-        setHasFetchedName(false);
-        setStopName('');
+        setHasFetchedData(false);
+        setDisplayName('');
       }
     };
-  }, [isOpen, position, address]);
+  }, [isOpen, position, fullAddress]);
 
   // Also update when address changes
   useEffect(() => {
-    if (address && !stopName && !loadingName) {
-      const cityName = extractCityFromAddress(address);
+    if (fullAddress && !displayName && !loadingData) {
+      const cityName = extractCityFromAddress(fullAddress);
       if (cityName) {
-        setStopName(cityName);
+        setDisplayName(cityName);
       }
     }
-  }, [address, stopName, loadingName]);
+  }, [fullAddress, displayName, loadingData]);
 
   if (!isOpen) return null;
 
@@ -742,34 +775,34 @@ const AddStopModal: React.FC<{
         </div>
 
         <div className="mb-3">
-          <div className="text-sm text-gray-600 mb-1">Stop Name:</div>
+          <div className="text-sm text-gray-600 mb-1">Stop Name (City/Town):</div>
           <div className="relative">
             <input
               type="text"
-              value={stopName}
+              value={displayName}
               onChange={(e) => {
-                // MANUAL UPDATE - This triggers immediate UI update
-                setStopName(e.target.value);
+                // MANUAL UPDATE
+                setDisplayName(e.target.value);
               }}
-              placeholder="Enter stop name"
+              placeholder="Enter stop name (city/town)"
               className="w-full p-2 border border-gray-300 rounded-lg font-medium text-gray-800 bg-transparent"
-              disabled={loadingName}
+              disabled={loadingData}
             />
-            {loadingName && (
+            {loadingData && (
               <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
                 <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
               </div>
             )}
           </div>
           <p className="text-xs text-gray-500 mt-1">
-            {loadingName ? 'Detecting location name...' : 'Accurately detected location name (city/town)'}
+            {loadingData ? 'Detecting location name...' : 'Automatically detected city/town name'}
           </p>
         </div>
 
         <div className="mb-3">
-          <div className="text-sm text-gray-600 mb-1">Location Address:</div>
-          <div className="font-medium text-gray-800 p-2 bg-gray-50 rounded-lg max-h-20 overflow-y-auto">
-            {address || 'Fetching address...'}
+          <div className="text-sm text-gray-600 mb-1">Full Address (For backend):</div>
+          <div className="font-medium text-gray-800 p-2 bg-gray-50 rounded-lg max-h-20 overflow-y-auto text-xs">
+            {fullAddress || 'Fetching address...'}
           </div>
           {position && (
             <div className="text-xs text-gray-500 mt-1">
@@ -788,24 +821,24 @@ const AddStopModal: React.FC<{
         <div className="flex flex-col sm:flex-row gap-2">
           <button
             onClick={() => {
-              if (position && isValid && stopName) {
+              if (position && isValid && displayName) {
                 onConfirm({
                   stopId: Date.now(),
                   type: 'STOP',
-                  name: stopName,
-                  address: address,
+                  name: displayName,        // City/town name for UI
+                  address: fullAddress,     // Full address for backend
                   lat: position.lat,
                   lng: position.lng
                 });
               }
             }}
-            disabled={!isValid || !stopName || loadingName}
-            className={`flex-1 py-2 rounded-lg font-medium ${isValid && stopName && !loadingName
+            disabled={!isValid || !displayName || loadingData}
+            className={`flex-1 py-2 rounded-lg font-medium ${isValid && displayName && !loadingData
                 ? 'bg-[#21409A] text-white hover:bg-[#1a357c]'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
           >
-            {loadingName ? 'Loading...' : 'Add Stop'}
+            {loadingData ? 'Loading...' : 'Add Stop'}
           </button>
           <button
             onClick={onClose}
@@ -932,7 +965,7 @@ const OfferRide2: React.FC = () => {
   const [addStopModal, setAddStopModal] = useState({
     isOpen: false,
     position: null as { lat: number; lng: number } | null,
-    address: '',
+    fullAddress: '',
     isValid: false,
     validationMessage: ''
   });
@@ -973,30 +1006,54 @@ const OfferRide2: React.FC = () => {
 
 
   const formatDurationHrMin = (duration: string): string => {
-    // Seconds format (e.g. "2700s")
+    // Convert duration string to total minutes first
+    let totalMinutes = 0;
+    
+    // Handle seconds format (e.g. "2700s")
     if (/^\d+s$/.test(duration)) {
       const totalSeconds = Number(duration.replace('s', ''));
-      const hours = Math.floor(totalSeconds / 3600);
-      const minutes = Math.round((totalSeconds % 3600) / 60);
-
-      if (hours > 0) {
-        return `${hours} hr ${minutes} min`;
-      }
+      totalMinutes = Math.round(totalSeconds / 60);
+    }
+    // Handle ISO 8601 format (e.g. "PT1H30M")
+    else if (duration.startsWith('PT')) {
+      const hoursMatch = duration.match(/(\d+)H/);
+      const minutesMatch = duration.match(/(\d+)M/);
+      const secondsMatch = duration.match(/(\d+)S/);
+      
+      const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+      const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 0;
+      const seconds = secondsMatch ? parseInt(secondsMatch[1]) : 0;
+      
+      totalMinutes = hours * 60 + minutes + Math.round(seconds / 60);
+    }
+    // Handle already formatted duration (e.g. "45 min")
+    else if (duration.includes('min') || duration.includes('hr')) {
+      const hoursMatch = duration.match(/(\d+)\s*hr/);
+      const minutesMatch = duration.match(/(\d+)\s*min/);
+      
+      const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+      const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 0;
+      
+      totalMinutes = hours * 60 + minutes;
+    }
+    // Fallback: try to parse as minutes
+    else {
+      totalMinutes = parseInt(duration) || 0;
+    }
+    
+    // Convert total minutes to hours and minutes
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    
+    if (hours > 0 && minutes > 0) {
+      return `${hours} hr ${minutes} min`;
+    } else if (hours > 0) {
+      return `${hours} hr`;
+    } else if (minutes > 0) {
       return `${minutes} min`;
+    } else {
+      return duration; // Fallback to original
     }
-
-    // ISO 8601 format (e.g. "PT1H30M")
-    if (duration.startsWith('PT')) {
-      const h = duration.match(/(\d+)H/)?.[1];
-      const m = duration.match(/(\d+)M/)?.[1];
-
-      if (h && m) return `${h} hr ${m} min`;
-      if (h) return `${h} hr`;
-      if (m) return `${m} min`;
-    }
-
-    // Already formatted (safe fallback)
-    return duration;
   };
 
   // Background fare calculation functions
@@ -1038,8 +1095,8 @@ const OfferRide2: React.FC = () => {
     const initializeStops = async () => {
       const initialStops: StopPoint[] = [];
 
-      // Get accurate name for pickup
-      const pickupName = await getAccurateLocationName(
+      // Get accurate location data for pickup
+      const pickupData = await getAccurateLocationData(
         rideData.pickup.lat,
         rideData.pickup.lng
       );
@@ -1047,14 +1104,14 @@ const OfferRide2: React.FC = () => {
       initialStops.push({
         stopId: 1,
         type: 'ORIGIN',
-        name: pickupName.name,
-        address: pickupName.address,
+        name: pickupData.displayName,    // City/town name for UI
+        address: pickupData.fullAddress, // Full address for backend
         lat: rideData.pickup.lat,
         lng: rideData.pickup.lng
       });
 
-      // Get accurate name for drop
-      const dropName = await getAccurateLocationName(
+      // Get accurate location data for drop
+      const dropData = await getAccurateLocationData(
         rideData.drop.lat,
         rideData.drop.lng
       );
@@ -1062,8 +1119,8 @@ const OfferRide2: React.FC = () => {
       initialStops.push({
         stopId: 2,
         type: 'DESTINATION',
-        name: dropName.name,
-        address: dropName.address,
+        name: dropData.displayName,      // City/town name for UI
+        address: dropData.fullAddress,   // Full address for backend
         lat: rideData.drop.lat,
         lng: rideData.drop.lng
       });
@@ -1139,8 +1196,8 @@ const OfferRide2: React.FC = () => {
       const fallbackRoutes: RouteOption[] = [
         {
           id: 1,
-          duration: '45 min',
-          durationSeconds: 2700,
+          duration: '45 hr 30 min', // Changed from '45 min' to '45 hr 30 min'
+          durationSeconds: 45 * 3600 + 30 * 60, // 45 hours 30 minutes in seconds
           distance: '18.5 km',
           distanceMeters: 18500,
           hasTolls: true,
@@ -1177,15 +1234,22 @@ const OfferRide2: React.FC = () => {
     if (!duration) return '0 min';
 
     const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
-    if (!match) return duration;
+    if (!match) return formatDurationHrMin(duration);
 
     const hours = match[1] ? parseInt(match[1].replace('H', '')) : 0;
     const minutes = match[2] ? parseInt(match[2].replace('M', '')) : 0;
+    const seconds = match[3] ? parseInt(match[3].replace('S', '')) : 0;
 
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
+    const totalMinutes = hours * 60 + minutes + Math.round(seconds / 60);
+    
+    if (hours > 0 && minutes > 0) {
+      return `${hours} hr ${minutes} min`;
+    } else if (hours > 0) {
+      return `${hours} hr`;
+    } else if (minutes > 0) {
+      return `${minutes} min`;
     }
-    return `${minutes} min`;
+    return '0 min';
   };
 
   const parseDurationToSeconds = (duration: string): number => {
@@ -1276,8 +1340,8 @@ const OfferRide2: React.FC = () => {
     }
 
     try {
-      // Get accurate name from coordinates
-      const accurateName = await getAccurateLocationName(
+      // Get accurate location data from coordinates
+      const accurateData = await getAccurateLocationData(
         stopData.lat,
         stopData.lng
       );
@@ -1288,8 +1352,8 @@ const OfferRide2: React.FC = () => {
       const newStop: StopPoint = {
         ...stopData,
         stopId: newStopId,
-        name: accurateName.name,
-        address: accurateName.address
+        name: accurateData.displayName,    // City/town name for UI
+        address: accurateData.fullAddress  // Full address for backend
       };
 
       // Use setState callback to ensure immediate update
@@ -1356,8 +1420,8 @@ const OfferRide2: React.FC = () => {
       const midIndex = Math.floor(polylinePath.length / 2);
       const midPoint = polylinePath[midIndex];
 
-      // Get accurate name from coordinates
-      const accurateName = await getAccurateLocationName(midPoint.lat, midPoint.lng);
+      // Get accurate location data from coordinates
+      const accurateData = await getAccurateLocationData(midPoint.lat, midPoint.lng);
 
       // Validate the stop location is on the polyline route
       const validation = validateStopOnPolylineRoute(
@@ -1382,8 +1446,8 @@ const OfferRide2: React.FC = () => {
       const newStop: StopPoint = {
         stopId: newStopId,
         type: 'STOP',
-        name: accurateName.name,
-        address: accurateName.address,
+        name: accurateData.displayName,    // City/town name for UI
+        address: accurateData.fullAddress, // Full address for backend
         lat: midPoint.lat,
         lng: midPoint.lng
       };
@@ -1434,7 +1498,7 @@ const OfferRide2: React.FC = () => {
       setAddStopModal({
         isOpen: true,
         position: null,
-        address: '',
+        fullAddress: '',
         isValid: false,
         validationMessage: ''
       });
@@ -1464,13 +1528,13 @@ const OfferRide2: React.FC = () => {
         return;
       }
 
-      // Get accurate name and address
-      const accurateName = await getAccurateLocationName(lat, lng);
+      // Get accurate location data
+      const accurateData = await getAccurateLocationData(lat, lng);
 
       setAddStopModal({
         isOpen: true,
         position: { lat, lng },
-        address: accurateName.address,
+        fullAddress: accurateData.fullAddress,  // Full address for backend
         isValid: validation.isValid,
         validationMessage: validation.message
       });
@@ -1490,7 +1554,7 @@ const OfferRide2: React.FC = () => {
       setAddStopModal({
         isOpen: false,
         position: null,
-        address: '',
+        fullAddress: '',
         isValid: false,
         validationMessage: ''
       });
@@ -1526,7 +1590,7 @@ const OfferRide2: React.FC = () => {
       setAddStopModal({
         isOpen: false,
         position: null,
-        address: '',
+        fullAddress: '',
         isValid: false,
         validationMessage: ''
       });
@@ -1897,21 +1961,9 @@ const OfferRide2: React.FC = () => {
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-bold text-gray-800">{route.duration}</span>
-                        {/* <span
-                          className={`px-1.5 py-0.5 text-xs font-medium rounded-full ${route.hasTolls
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-green-100 text-green-700'
-                            }`}
-                        >
-                          {route.hasTolls ? 'With tolls' : 'No tolls'}
-                        </span> */}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="text-xs text-gray-600">{route.distance}</span>
-                        {/* <span className="text-xs text-gray-300">•</span> */}
-                        {/* <span className="text-xs text-[#21409A] font-medium">
-                          Route #{route.id}
-                        </span> */}
                       </div>
                     </div>
                   </div>
@@ -2032,7 +2084,7 @@ const OfferRide2: React.FC = () => {
                   setAddStopModal({
                     isOpen: true,
                     position: null,
-                    address: '',
+                    fullAddress: '',
                     isValid: false,
                     validationMessage: ''
                   });
@@ -2146,7 +2198,8 @@ const OfferRide2: React.FC = () => {
                         </span>
                       </div>
                       <div className="text-xs text-gray-500 truncate">
-                        {stop.address}
+                        {stop.type === 'ORIGIN' ? 'Pickup Point' : 
+                         stop.type === 'DESTINATION' ? 'Drop Point' : 'Intermediate Stop'}
                       </div>
                     </div>
                   </div>
@@ -2192,7 +2245,7 @@ const OfferRide2: React.FC = () => {
             </>
           ) : (
             <>
-              <span className="text-sm">Continue to Vehicle Selection</span>
+              <span className="text-sm">Continue </span>
               <ChevronRight size={14} />
             </>
           )}
@@ -2257,7 +2310,7 @@ const OfferRide2: React.FC = () => {
           setAddStopModal({
             isOpen: false,
             position: null,
-            address: '',
+            fullAddress: '',
             isValid: false,
             validationMessage: ''
           });
@@ -2265,7 +2318,7 @@ const OfferRide2: React.FC = () => {
         }}
         onConfirm={confirmAddStop}
         position={addStopModal.position}
-        address={addStopModal.address}
+        fullAddress={addStopModal.fullAddress}
         isValid={addStopModal.isValid}
         validationMessage={addStopModal.validationMessage}
         isFullCar={isFullCar}
@@ -2366,8 +2419,8 @@ const OfferRide2: React.FC = () => {
                                 return;
                               }
 
-                              // Get accurate name for new location
-                              const accurateName = await getAccurateLocationName(lat, lng);
+                              // Get accurate location data for new location
+                              const accurateData = await getAccurateLocationData(lat, lng);
 
                               setStopPoints(prevStops => {
                                 const updatedStops = prevStops.map(s =>
@@ -2376,8 +2429,8 @@ const OfferRide2: React.FC = () => {
                                       ...s,
                                       lat,
                                       lng,
-                                      name: accurateName.name,
-                                      address: accurateName.address
+                                      name: accurateData.displayName,
+                                      address: accurateData.fullAddress
                                     }
                                     : s
                                 );
@@ -2438,7 +2491,7 @@ const OfferRide2: React.FC = () => {
                       <span className="truncate text-xs">
                         {origin?.name || 'Origin'} →
                         {destination?.name || 'Destination'}
-                      </span>selectedRouteData.duration
+                      </span>
                     </div>
                     <div className="text-xs text-gray-600 mt-0.5">
                       {isFullCar ? 'Full Car • No Stops' : `${stopPoints.filter(stop => stop.type === 'STOP').length} intermediate stops`}
@@ -2546,8 +2599,8 @@ const OfferRide2: React.FC = () => {
                             return;
                           }
 
-                          // Get accurate name for new location
-                          const accurateName = await getAccurateLocationName(lat, lng);
+                          // Get accurate location data for new location
+                          const accurateData = await getAccurateLocationData(lat, lng);
 
                           setStopPoints(prevStops => {
                             const updatedStops = prevStops.map(s =>
@@ -2556,8 +2609,8 @@ const OfferRide2: React.FC = () => {
                                   ...s,
                                   lat,
                                   lng,
-                                  name: accurateName.name,
-                                  address: accurateName.address
+                                  name: accurateData.displayName,
+                                  address: accurateData.fullAddress
                                 }
                                 : s
                             );

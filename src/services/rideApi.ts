@@ -1,4 +1,3 @@
-
 import { BASE_URL } from '../config/api';
 
 export interface Stop {
@@ -21,13 +20,14 @@ export interface OfferRidePayload {
   origin: {
     address: string;
     coordinates: [number, number]; // [longitude, latitude]
+    name?: string;
   };
   destination: {
     address: string;
     coordinates: [number, number];
+    name?: string;
   };
   vehicle_id: number;
-  // driver_id: number; 
   seat_quantity: number;
   departureTime: string; // ISO string
   fare_details: {
@@ -36,36 +36,47 @@ export interface OfferRidePayload {
   isNegotiable: boolean;
   is_full_car: boolean;
   status: 'published' | 'draft';
-  stops?: Stop[]; // For shared rides: should include ALL stops in order
-  fares?: FareSegment[]; // For shared rides: sequential segments only (1→2, 2→3, etc.)
+  stops?: Stop[];
+  fares?: FareSegment[];
   total_distance?: number;
+  total_duration?: string;
+  accessibility?: string[];
+  communication?: string[];
+  general?: string[];
+  ride_comfort?: string[];
 }
 
 export interface OfferRideResponse {
   instant_confirmed: boolean;
-  activated_at: string;
   record_status: string;
   ride_id: number;
   partner_id: number;
-  // driver_id: number | null;
+  driver_id: number | null;
   vehicle_id: number;
+  start_location_name: string;
   start_address: string;
   start_lat: number;
   start_lng: number;
+  end_location_name: string;
   end_address: string;
   end_lat: number;
   end_lng: number;
   travel_datetime: string;
+  time_of_day: string;
   total_seats: number;
   available_seats: number;
   is_negotiable: boolean;
   is_full_car: boolean;
+  base_fare: number;
+  total_distance: number;
+  total_duration: string;
   ride_status: string;
   draft_at: string;
   published_at: string;
   ride_created_by: string;
   created_by: number;
   created_at: string;
+  ride_code: string;
 }
 
 const getAuthToken = (): string | null => {
@@ -180,23 +191,33 @@ const apiRequest = async (endpoint: string, method: string, body?: any, requires
   return data;
 };
 
-// CORRECTED: Updated to handle proper stop order
+// CORRECTED OFFER RIDE FUNCTION
 export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideResponse> => {
   try {
-    console.log('Offering ride with payload:', payload);
+    console.log('Offering ride with payload:', JSON.stringify(payload, null, 2));
     
-    // Clean payload to match expected structure
-    const processedPayload: any = {
+    // Convert coordinates to correct format [longitude, latitude] if needed
+    const originCoords = Array.isArray(payload.origin.coordinates) 
+      ? payload.origin.coordinates 
+      : [payload.origin.coordinates[0], payload.origin.coordinates[1]];
+    
+    const destinationCoords = Array.isArray(payload.destination.coordinates)
+      ? payload.destination.coordinates
+      : [payload.destination.coordinates[0], payload.destination.coordinates[1]];
+    
+    // Create final payload matching your API's expected format
+    const finalPayload: any = {
       origin: {
         address: payload.origin.address,
-        coordinates: payload.origin.coordinates // Should be [longitude, latitude]
+        coordinates: originCoords,
+        name: payload.origin.name || payload.origin.address
       },
       destination: {
         address: payload.destination.address,
-        coordinates: payload.destination.coordinates
+        coordinates: destinationCoords,
+        name: payload.destination.name || payload.destination.address
       },
       vehicle_id: payload.vehicle_id,
-      // driver_id: payload.driver_id, // CRITICAL: Must be included
       seat_quantity: payload.seat_quantity,
       departureTime: payload.departureTime,
       fare_details: payload.fare_details,
@@ -205,52 +226,66 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
       status: payload.status
     };
     
-    // Add distance field
+    // Add optional fields if they exist
     if (payload.total_distance !== undefined) {
-      processedPayload.total_distance = payload.total_distance;
+      finalPayload.total_distance = payload.total_distance;
+    }
+    
+    if (payload.total_duration !== undefined) {
+      finalPayload.total_duration = payload.total_duration;
+    }
+    
+    // Add preferences as arrays of strings
+    if (payload.accessibility && payload.accessibility.length > 0) {
+      finalPayload.accessibility = payload.accessibility;
+    }
+    
+    if (payload.communication && payload.communication.length > 0) {
+      finalPayload.communication = payload.communication;
+    }
+    
+    if (payload.general && payload.general.length > 0) {
+      finalPayload.general = payload.general;
+    }
+    
+    if (payload.ride_comfort && payload.ride_comfort.length > 0) {
+      finalPayload.ride_comfort = payload.ride_comfort;
     }
     
     // For shared rides: include stops and fares
     if (!payload.is_full_car) {
-      // IMPORTANT: The backend expects all stops in sequential order
       if (payload.stops && payload.stops.length > 0) {
-        // Ensure stops have required fields and correct order
-        const stops = payload.stops.map((stop, index) => ({
+        finalPayload.stops = payload.stops.map((stop, index) => ({
           stop_name: stop.stop_name || `Stop ${index + 1}`,
           latitude: stop.latitude,
           longitude: stop.longitude,
           address: stop.address || stop.stop_name,
-          total_duration: stop.total_duration || "0"
+          total_duration: stop.total_duration || "0m"
         }));
-        processedPayload.stops = stops;
       }
       
-      // IMPORTANT: The backend expects sequential fare segments only
-      // (1→2, 2→3, 3→4, etc.) - NOT all combinations
       if (payload.fares && payload.fares.length > 0) {
-        // Validate that fares are sequential
-        const invalidFares = payload.fares.filter(fare => 
-          fare.to_stop_order - fare.from_stop_order !== 1
-        );
-        
-        if (invalidFares.length > 0) {
-          console.warn('Non-sequential fares detected:', invalidFares);
-          // You might want to filter these out or throw an error
-        }
-        
-        processedPayload.fares = payload.fares;
+        finalPayload.fares = payload.fares.map(fare => ({
+          from_stop_order: fare.from_stop_order,
+          to_stop_order: fare.to_stop_order,
+          fare: fare.fare,
+          total_distance_km: fare.total_distance_km || 0,
+          duration: fare.duration || "0m"
+        }));
       }
     }
     
-    console.log('Processed payload for API:', JSON.stringify(processedPayload, null, 2));
+    console.log('Final payload for API:', JSON.stringify(finalPayload, null, 2));
     
-    const response = await apiRequest('/api/rides/offer', 'POST', processedPayload, true);
+    const response = await apiRequest('/api/rides/offer', 'POST', finalPayload, true);
     
-    return response;
+    return response as OfferRideResponse;
   } catch (error: any) {
     console.error('Error in offerRide:', error);
     
-    if (error.message.includes('Authentication required') || error.message.includes('session has expired')) {
+    if (error.message.includes('Authentication required') || 
+        error.message.includes('session has expired') ||
+        error.message.includes('401')) {
       throw error;
     }
     
@@ -261,7 +296,6 @@ export const offerRide = async (payload: OfferRidePayload): Promise<OfferRideRes
 export interface Vehicle {
   id: number;
   partner_id: number;
-  // driver_id: number | null;
   vehicle_code: string;
   vehicle_type: string;
   brand: string | null;

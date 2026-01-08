@@ -6,6 +6,7 @@ import { LocationProvider } from "./contexts/LocationContext";
 import { LocationModal } from "./components/modals/LocationModal";
 import { Navbar } from "./components/layout/Navbar";
 
+
 // Pages
 import Welcome from "./pages/Welcome";
 import Index from "./pages/Index";
@@ -39,6 +40,10 @@ import YourTrips from "./components/Starttrip/yourtrip";
 import LoginForm from "./components/auth/LoginForm";
 import SignupForm from "./components/auth/SignupForm";
 import TripRating from "./components/Notification/TripRating";
+import AccountSettings from "./components/Profile/accountsettings";
+import ReserveList from "./pages/ReserveList";
+import Transactions from "./components/wallet/Transactions";
+// import InvoicePage from "./pages/InvoicePage";
 
 const queryClient = new QueryClient();
 
@@ -141,6 +146,11 @@ const AppRoutes = () => {
       <Route path="/my-rides-booking-view" element={<ProtectedRoute><AppLayout><MyRideBookingView /></AppLayout></ProtectedRoute>} />
       <Route path="/your-trips" element={<ProtectedRoute><AppLayout><YourTrips /></AppLayout></ProtectedRoute>} />
        <Route path="/trip-rating" element={<ProtectedRoute><AppLayout><TripRating /></AppLayout></ProtectedRoute>} />
+        <Route path="/account-settings" element={<ProtectedRoute><AppLayout><AccountSettings /></AppLayout></ProtectedRoute>} />
+        <Route path="/reserve-list" element={<ProtectedRoute><AppLayout><ReserveList /></AppLayout></ProtectedRoute>} />
+          <Route path="/add-payment-method" element={<ProtectedRoute><AppLayout><AddPaymentMethod /></AppLayout></ProtectedRoute>} />
+            <Route path="/transactions" element={<ProtectedRoute><AppLayout><Transactions /></AppLayout></ProtectedRoute>} />
+         {/* <Route path="/invoice" element={<ProtectedRoute><AppLayout><InvoicePage /></AppLayout></ProtectedRoute>} /> */}
       
       {/* Redirect root to welcome */}
       <Route path="/" element={<Navigate to="/welcome" replace />} />

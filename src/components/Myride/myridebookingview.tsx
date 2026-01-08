@@ -3,8 +3,9 @@ import { FiStar } from 'react-icons/fi';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getBookingsForRide, formatBookingStatus, Booking } from '../../services/bookingsviewapi';
 import { useAuth } from '@/contexts/AuthContext';
-import { ArrowLeft, ChevronLeft, PlayCircle, Check, Copy } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, PlayCircle, Check, Copy, X, Download, ExternalLink } from 'lucide-react';
 import VerifyTripOtp from '../Starttrip/VerifyTripOtp';
+import mainLogo from '@/assets/mainlogo.png'; 
 
 interface BookingCardProps {
   booking: Booking;
@@ -273,7 +274,7 @@ const ToastNotification = ({
   
   if (!visible) return null;
   
-  const bgColor = type === 'success' ? 'bg-green-100 border-green-200' : 'bg-red-100 border-red-200';
+  const bgColor = type === 'success' ? 'bg-lime-500 border-green-200' : 'bg-red-100 border-red-200';
   const textColor = type === 'success' ? 'text-green-800' : 'text-red-800';
   
   return (
@@ -381,6 +382,110 @@ const SuccessModal = ({
   );
 };
 
+// Download App Modal Component
+const DownloadAppModal = ({ 
+  show, 
+  onClose,
+  onCopySuccess
+}: { 
+  show: boolean; 
+  onClose: () => void;
+  onCopySuccess: (message: string) => void;
+}) => {
+  const playStoreLink = "https://play.google.com/store/apps/details?id=com.oolalalacar.android";
+  
+  const handleDownloadClick = () => {
+    window.open(playStoreLink, '_blank');
+  };
+  
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(playStoreLink);
+      onCopySuccess("Link copied to clipboard!");
+    } catch (err) {
+      console.error('Failed to copy link:', err);
+      onCopySuccess("Failed to copy link");
+    }
+  };
+  
+  if (!show) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-[400px] animate-fade-in">
+        {/* Header with Logo */}
+        <div className="flex items-center justify-between p-6 border-b">
+          <div className="flex items-center gap-3">
+            <img 
+              src={mainLogo} 
+              alt="Oolalala Logo" 
+              className="w-16 h-16" // Increased logo size
+            />
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Download Our App</h2> {/* Smaller font */}
+              <p className="text-xs text-gray-600 mt-1">Continue your ride in mobile app</p> {/* Smaller text */}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-lg transition"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div className="p-6">
+          {/* Simple Message */}
+          <div className="text-center mb-6">
+            <p className="text-sm text-gray-700"> {/* Smaller text */}
+              To start your trip and access all ride management features, please download our mobile app.
+            </p>
+          </div>
+          
+          {/* Download Link */}
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+            <p className="text-xs text-gray-700 mb-2">Play Store Link:</p> {/* Smaller text */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 overflow-hidden">
+                <p className="text-xs text-gray-700 truncate">{playStoreLink}</p> {/* Smaller text */}
+              </div>
+              <button
+                onClick={handleCopyLink}
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
+                aria-label="Copy link"
+              >
+                <Copy className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+          </div>
+          
+          {/* Action Buttons */}
+          <div className="space-y-3">
+            <button
+              onClick={handleDownloadClick}
+              className="w-full py-3 text-white rounded-lg font-medium hover:opacity-90 transition-all flex items-center justify-center gap-2"
+              style={{ backgroundColor: '#21409A' }}
+            >
+              <Download className="w-5 h-5" />
+              <span className="text-sm">Download App</span> {/* Smaller text */}
+              <ExternalLink className="w-4 h-4" />
+            </button>
+            
+            <button
+              onClick={onClose}
+              className="w-full py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition text-sm" 
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const MyRideBookingView: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -413,6 +518,9 @@ const MyRideBookingView: React.FC = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
+
+  // Download App Modal State
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   useEffect(() => {
     if (!rideId || !isAuthenticated) {
@@ -465,20 +573,8 @@ const MyRideBookingView: React.FC = () => {
   };
 
   const handleStartTrip = () => {
-    // Navigate to Your Trips page with the rideData
-    navigate('/your-trips', {
-      state: {
-        bookingData: bookings.length > 0 ? bookings[0] : null,
-        rideId: rideId,
-        rideData: rideData,
-        tripInfo: rideData || {
-          route: {
-            from: { name: 'Location A', time: new Date().toISOString() },
-            to: { name: 'Location B', time: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() }
-          }
-        }
-      }
-    });
+    // Show download app modal instead of navigating
+    setShowDownloadModal(true);
   };
 
   const handleBookingCardClick = (bookingId: number) => {
@@ -540,6 +636,16 @@ const MyRideBookingView: React.FC = () => {
     setDropOtp('');
   };
 
+  const handleDownloadModalClose = () => {
+    setShowDownloadModal(false);
+  };
+
+  const handleCopySuccess = (message: string) => {
+    setToastMessage(message);
+    setToastType('success');
+    setShowToast(true);
+  };
+
   if (!rideId) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -573,6 +679,13 @@ const MyRideBookingView: React.FC = () => {
         show={showSuccessModal} 
         onClose={handleSuccessModalClose} 
         dropOtp={dropOtp}
+      />
+      
+      {/* Download App Modal */}
+      <DownloadAppModal 
+        show={showDownloadModal} 
+        onClose={handleDownloadModalClose}
+        onCopySuccess={handleCopySuccess}
       />
       
       {/* Toast Notification for drop OTP */}

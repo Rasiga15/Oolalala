@@ -1,9 +1,75 @@
-// src/pages/offer-ride/OfferRide4.tsx - FIXED WITH COMPLETE PAYLOAD
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, AlertCircle, IndianRupee, Car, Loader2, Plus, Minus, Navigation, Info, User, Lock } from 'lucide-react';
+import { ArrowLeft, CheckCircle, AlertCircle, IndianRupee, Car, Loader2, Plus, Minus, Lock, Info, User } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import Navbar from '../layout/Navbar';
-import { offerRide } from '../../services/rideApi';
+import { offerRide, OfferRideResponse } from '../../services/rideApi';
+
+const isCoordinateString = (text: string): boolean => {
+  if (!text || text.trim().length === 0) return false;
+  const coordinatePattern = /^\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*$/;
+  return coordinatePattern.test(text);
+};
+
+const extractCityFromAddress = (fullAddress: string): string => {
+  if (!fullAddress) return '';
+
+  const parts = fullAddress.split(',');
+
+  for (let i = 0; i < Math.min(parts.length, 3); i++) {
+    const part = parts[i].trim();
+
+    if (!part || isCoordinateString(part) || /^\d+$/.test(part)) {
+      continue;
+    }
+
+    const lowerPart = part.toLowerCase();
+    if (
+      lowerPart.includes('india') ||
+      lowerPart.includes('district') ||
+      lowerPart.includes('state') ||
+      lowerPart.includes('country') ||
+      lowerPart.includes('pin ') ||
+      lowerPart.includes('pincode') ||
+      lowerPart.includes('postal code') ||
+      lowerPart.includes('post office')
+    ) {
+      continue;
+    }
+
+    if (part.length >= 2 && part.length <= 30) {
+      return part;
+    }
+  }
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i].trim();
+    if (part && !isCoordinateString(part) && part.length >= 2) {
+      const cleanPart = part.replace(/[0-9]/g, '').trim();
+      if (cleanPart.length >= 2) {
+        return cleanPart;
+      }
+      return part;
+    }
+  }
+
+  return '';
+};
+
+const getDisplayName = (stop: any): string => {
+  if (!stop) return 'Unknown';
+  
+  if (stop.name && !stop.name.includes('Location (') && stop.name.length < 50) {
+    return stop.name;
+  }
+  
+  if (stop.address) {
+    const cityName = extractCityFromAddress(stop.address);
+    if (cityName && cityName !== '') {
+      return cityName;
+    }
+  }
+  
+  return stop.name || `Stop ${stop.stopId}`;
+};
 
 const OfferRide4: React.FC = () => {
   const navigate = useNavigate();
@@ -19,6 +85,7 @@ const OfferRide4: React.FC = () => {
   const [priceAdjustmentMessage, setPriceAdjustmentMessage] = useState<string>('');
   const [mainFare, setMainFare] = useState<number>(0);
   const [originalSegmentFares, setOriginalSegmentFares] = useState<number[]>([]);
+  const [stopDisplayNames, setStopDisplayNames] = useState<Record<number, string>>({});
 
   useEffect(() => {
     console.log('OfferRide4 - Received rideData:', rideData);
@@ -27,7 +94,6 @@ const OfferRide4: React.FC = () => {
     
     setIsFullCar(rideData?.isFullCar || false);
     
-    // Initialize segment fares based on ride type
     if (rideData?.isFullCar) {
       const calculatedTotalFare = (rideData.pricePerSeat || 650) * (rideData.seats || 1);
       setSegmentFares([calculatedTotalFare]);
@@ -38,7 +104,6 @@ const OfferRide4: React.FC = () => {
       const sortedStops = rideData.stopPoints.sort((a: any, b: any) => a.stopId - b.stopId);
       const fares = [];
       
-      // Get sequential segment fares only (1→2, 2→3, 3→4, etc.)
       for (let i = 0; i < sortedStops.length - 1; i++) {
         const fromStopOrder = i + 1;
         const toStopOrder = i + 2;
@@ -50,7 +115,6 @@ const OfferRide4: React.FC = () => {
         fares.push(fare);
       }
       
-      // Calculate main/original fare (origin to destination)
       let mainFareCalculated = 0;
       const originIndex = sortedStops.findIndex((s: any) => s.type === 'ORIGIN');
       const destinationIndex = sortedStops.findIndex((s: any) => s.type === 'DESTINATION');
@@ -73,45 +137,45 @@ const OfferRide4: React.FC = () => {
       console.log('Main/Original fare:', mainFareCalculated);
       
       setSegmentFares(fares);
-      setOriginalSegmentFares([...fares]); // Store original segment fares
+      setOriginalSegmentFares([...fares]);
       setTotalFare(mainFareCalculated);
       setMainFare(mainFareCalculated);
     }
+    
+    if (rideData?.stopPoints) {
+      const displayNames: Record<number, string> = {};
+      rideData.stopPoints.forEach((stop: any) => {
+        displayNames[stop.stopId] = getDisplayName(stop);
+      });
+      setStopDisplayNames(displayNames);
+    }
   }, [rideData, navigate]);
 
-  // Function to generate ALL fare combinations with MAIN FARE FIXED
   const generateAllFareCombinations = (sortedStops: any[], segmentFares: number[]) => {
     const combinations = [];
     const totalStops = sortedStops.length;
     
-    // For each possible start point
     for (let i = 0; i < totalStops; i++) {
-      // For each possible end point after the start
       for (let j = i + 1; j < totalStops; j++) {
-        // Calculate fare for this combination by summing sequential segments
         let fare = 0;
         for (let k = i; k < j; k++) {
           fare += segmentFares[k] || 0;
         }
         
-        // If this is the main/original route (origin to destination), use the fixed mainFare
         const isMainRoute = (sortedStops[i].type === 'ORIGIN' && sortedStops[j].type === 'DESTINATION');
         if (isMainRoute) {
-          fare = mainFare; // Always use the fixed main fare
+          fare = mainFare;
         }
         
-        // Calculate distance for this segment from routeSegments
         let segmentDistance = 0;
         for (let k = i; k < j; k++) {
           segmentDistance += rideData.routeSegments?.[k]?.distance || 0;
         }
         
-        // Ensure distance is positive (at least 0.1 km)
         if (segmentDistance === 0) {
           segmentDistance = 0.1;
         }
         
-        // Calculate duration (estimate 1 hour per 60 km)
         const estimatedDurationHours = segmentDistance / 60;
         const durationHours = Math.floor(estimatedDurationHours);
         const durationMinutes = Math.round((estimatedDurationHours - durationHours) * 60);
@@ -123,7 +187,7 @@ const OfferRide4: React.FC = () => {
           from_stop_order: i + 1,
           to_stop_order: j + 1,
           fare: Math.round(fare),
-          total_distance_km: Math.round(segmentDistance * 10) / 10, // Round to 1 decimal
+          total_distance_km: Math.round(segmentDistance * 10) / 10,
           duration: duration
         });
       }
@@ -145,29 +209,44 @@ const OfferRide4: React.FC = () => {
 
     try {
       const sortedStops = rideData.stopPoints?.sort((a: any, b: any) => a.stopId - b.stopId) || [];
-      
       const origin = sortedStops.find((s: any) => s.type === 'ORIGIN');
       const destination = sortedStops.find((s: any) => s.type === 'DESTINATION');
       const stops = sortedStops.filter((s: any) => s.type === 'STOP');
 
+      let departureDate: Date;
+      try {
+        let [h, m] = rideData.time.split(':').map(Number);
+        if (rideData.timeFormat === 'PM' && h !== 12) h += 12;
+        if (rideData.timeFormat === 'AM' && h === 12) h = 0;
+        departureDate = new Date(rideData.date);
+        departureDate.setHours(h, m, 0, 0);
+      } catch (error) {
+        departureDate = new Date();
+        departureDate.setHours(12, 0, 0, 0);
+      }
+
+      const totalHours = (rideData.totalDistance || 0) / 60;
+      const hours = Math.floor(totalHours);
+      const minutes = Math.round((totalHours - hours) * 60);
+      const totalDuration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
       let payload: any;
 
       if (isFullCar) {
-        // Full car payload
         payload = {
           origin: {
             address: origin?.address || origin?.name || 'Origin',
-            coordinates: [origin?.lng || 0, origin?.lat || 0], // [longitude, latitude]
-            name: origin?.name || origin?.address || 'Origin'
+            coordinates: [origin?.lng || 0, origin?.lat || 0],
+            name: getDisplayName(origin)
           },
           destination: {
             address: destination?.address || destination?.name || 'Destination',
             coordinates: [destination?.lng || 0, destination?.lat || 0],
-            name: destination?.name || destination?.address || 'Destination'
+            name: getDisplayName(destination)
           },
           vehicle_id: rideData.selectedVehicle.id,
           seat_quantity: rideData.seats || 1,
-          departureTime: formatDateTime(),
+          departureTime: departureDate.toISOString().replace('Z', ''),
           fare_details: { 
             baseFare: totalFare
           },
@@ -175,28 +254,22 @@ const OfferRide4: React.FC = () => {
           is_full_car: true,
           status: "published",
           total_distance: rideData.totalDistance || 0,
-          total_duration: calculateTotalDuration(),
-          // Add preferences from rideData
-          accessibility: rideData.preferences?.accessibility || [],
-          communication: rideData.preferences?.communication || [],
-          general: rideData.preferences?.general || [],
-          ride_comfort: rideData.preferences?.ride_comfort || []
+          total_duration: totalDuration,
+          accessibility: rideData.preferences?.accessibility?.map((p: any) => p.text || p) || [],
+          communication: rideData.preferences?.communication?.map((p: any) => p.text || p) || [],
+          general: rideData.preferences?.general?.map((p: any) => p.text || p) || [],
+          ride_comfort: rideData.preferences?.ride_comfort?.map((p: any) => p.text || p) || []
         };
-
-        console.log('Full car payload:', payload);
       } else {
-        // Shared ride payload
         const allStops = [origin, ...stops, destination];
         
-        // Create stops array with cumulative duration
         const stopObjects = allStops.map((stop: any, index: number) => {
-          // Calculate cumulative distance and duration to this stop
           let cumulativeDistance = 0;
           let cumulativeDuration = 0;
           
           for (let i = 0; i < index; i++) {
             cumulativeDistance += rideData.routeSegments?.[i]?.distance || 0;
-            cumulativeDuration += (rideData.routeSegments?.[i]?.distance || 0) / 60; // Hours
+            cumulativeDuration += (rideData.routeSegments?.[i]?.distance || 0) / 60;
           }
           
           const hours = Math.floor(cumulativeDuration);
@@ -206,61 +279,59 @@ const OfferRide4: React.FC = () => {
             `${minutes}m`;
           
           return {
-            stop_name: stop?.name || stop?.address || `Stop ${index + 1}`,
+            stop_name: getDisplayName(stop),
             latitude: stop?.lat || 0,
             longitude: stop?.lng || 0,
             total_duration: total_duration,
-            address: stop?.address || stop?.name || ''
+            address: stop?.address || getDisplayName(stop)
           };
         });
 
-        // Generate ALL fare combinations with fixed main fare
         const fareCombinations = generateAllFareCombinations(allStops, segmentFares);
 
         payload = {
           origin: {
             address: origin?.address || origin?.name || 'Origin',
             coordinates: [origin?.lng || 0, origin?.lat || 0],
-            name: origin?.name || origin?.address || 'Origin'
+            name: getDisplayName(origin)
           },
           destination: {
             address: destination?.address || destination?.name || 'Destination',
             coordinates: [destination?.lng || 0, destination?.lat || 0],
-            name: destination?.name || destination?.address || 'Destination'
+            name: getDisplayName(destination)
           },
           vehicle_id: rideData.selectedVehicle.id,
           seat_quantity: rideData.seats || 1,
-          departureTime: formatDateTime(),
+          departureTime: departureDate.toISOString().replace('Z', ''),
           fare_details: { 
-            baseFare: mainFare // Use mainFare instead of totalFare
+            baseFare: mainFare
           },
           isNegotiable: rideData.isNegotiable || false,
           is_full_car: false,
           status: "published",
           total_distance: rideData.totalDistance || 0,
-          total_duration: calculateTotalDuration(),
-          // Add preferences from rideData
-          accessibility: rideData.preferences?.accessibility || [],
-          communication: rideData.preferences?.communication || [],
-          general: rideData.preferences?.general || [],
-          ride_comfort: rideData.preferences?.ride_comfort || [],
+          total_duration: totalDuration,
+          accessibility: rideData.preferences?.accessibility?.map((p: any) => p.text || p) || [],
+          communication: rideData.preferences?.communication?.map((p: any) => p.text || p) || [],
+          general: rideData.preferences?.general?.map((p: any) => p.text || p) || [],
+          ride_comfort: rideData.preferences?.ride_comfort?.map((p: any) => p.text || p) || [],
           stops: stopObjects,
           fares: fareCombinations
         };
-
-        console.log('Shared ride payload:', JSON.stringify(payload, null, 2));
       }
 
-      console.log('Sending payload to API:', payload);
-      const response = await offerRide(payload);
+      console.log('Final payload for API:', JSON.stringify(payload, null, 2));
+      
+      const response: OfferRideResponse = await offerRide(payload);
       console.log('API Response:', response);
       
       setSubmitSuccess(true);
       setTimeout(() => navigate('/my-rides', { 
         state: { 
-          rideId: response.ride_id || response.id,
+          rideId: response.ride_id,
           success: true,
-          message: 'Ride published successfully!' 
+          message: 'Ride published successfully!',
+          rideCode: response.ride_code
         }
       }), 1200);
     } catch (error: any) {
@@ -269,24 +340,6 @@ const OfferRide4: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const formatDateTime = () => {
-    if (!rideData) return '';
-    let [h, m] = rideData.time.split(':').map(Number);
-    if (rideData.timeFormat === 'PM' && h !== 12) h += 12;
-    if (rideData.timeFormat === 'AM' && h === 12) h = 0;
-    const d = new Date(rideData.date);
-    d.setHours(h, m, 0, 0);
-    return d.toISOString().replace('Z', '');
-  };
-
-  const calculateTotalDuration = () => {
-    if (!rideData?.totalDistance) return '0h 0m';
-    const totalHours = rideData.totalDistance / 60;
-    const hours = Math.floor(totalHours);
-    const minutes = Math.round((totalHours - hours) * 60);
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   };
 
   const handleBack = () => navigate(-1);
@@ -309,19 +362,15 @@ const OfferRide4: React.FC = () => {
       newFares[index] = (newFares[index] || 0) + 100;
       setSegmentFares(newFares);
       
-      // Do NOT update mainFare - it remains fixed
       const segmentTotal = newFares.reduce((sum, fare) => sum + fare, 0);
       setTotalFare(segmentTotal);
       
-      const stopNames = rideData.stopPoints?.sort((a: any, b: any) => a.stopId - b.stopId) || [];
-      const fromStop = stopNames[index]?.name || `Stop ${index + 1}`;
-      const toStop = stopNames[index + 1]?.name || `Stop ${index + 2}`;
+      const sortedStops = rideData.stopPoints?.sort((a: any, b: any) => a.stopId - b.stopId) || [];
+      const fromStopDisplay = getDisplayName(sortedStops[index]);
+      const toStopDisplay = getDisplayName(sortedStops[index + 1]);
       
       setPriceAdjustmentMessage(
-        <span>
-          Segment <span className="font-medium">{fromStop} to {toStop}</span> fare increased by ₹100.<br />
-          <span className="text-green-600 font-medium">Main fare remains fixed at: ₹{mainFare.toLocaleString()}</span>
-        </span>
+        `Segment ${fromStopDisplay} to ${toStopDisplay} fare increased by ₹100. Main fare remains fixed at: ₹${mainFare.toLocaleString()}`
       );
       setTimeout(() => setPriceAdjustmentMessage(''), 4000);
     }
@@ -350,19 +399,15 @@ const OfferRide4: React.FC = () => {
         newFares[index] = currentFare - 100;
         setSegmentFares(newFares);
         
-        // Do NOT update mainFare - it remains fixed
         const segmentTotal = newFares.reduce((sum, fare) => sum + fare, 0);
         setTotalFare(segmentTotal);
         
-        const stopNames = rideData.stopPoints?.sort((a: any, b: any) => a.stopId - b.stopId) || [];
-        const fromStop = stopNames[index]?.name || `Stop ${index + 1}`;
-        const toStop = stopNames[index + 1]?.name || `Stop ${index + 2}`;
+        const sortedStops = rideData.stopPoints?.sort((a: any, b: any) => a.stopId - b.stopId) || [];
+        const fromStopDisplay = getDisplayName(sortedStops[index]);
+        const toStopDisplay = getDisplayName(sortedStops[index + 1]);
         
         setPriceAdjustmentMessage(
-          <span>
-            Segment <span className="font-medium">{fromStop} to {toStop}</span> fare decreased by ₹100.<br />
-            <span className="text-green-600 font-medium">Main fare remains fixed at: ₹{mainFare.toLocaleString()}</span>
-          </span>
+          `Segment ${fromStopDisplay} to ${toStopDisplay} fare decreased by ₹100. Main fare remains fixed at: ₹${mainFare.toLocaleString()}`
         );
         setTimeout(() => setPriceAdjustmentMessage(''), 4000);
       }
@@ -374,10 +419,11 @@ const OfferRide4: React.FC = () => {
   const sortedStops = rideData.stopPoints?.sort((a: any, b: any) => a.stopId - b.stopId) || [];
   const origin = sortedStops.find((s: any) => s.type === 'ORIGIN');
   const destination = sortedStops.find((s: any) => s.type === 'DESTINATION');
+  const originDisplay = getDisplayName(origin);
+  const destinationDisplay = getDisplayName(destination);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      
       <div className="pt-4 px-3 max-w-7xl mx-auto">
         <div className="relative flex items-center mb-4">
           <button
@@ -392,7 +438,6 @@ const OfferRide4: React.FC = () => {
             {isFullCar ? 'Publish Full Car Ride' : 'Publish Shared Ride'}
           </h1>
         </div>
-
 
         {submitSuccess && (
           <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">
@@ -410,9 +455,9 @@ const OfferRide4: React.FC = () => {
 
         {priceAdjustmentMessage && (
           <div className={`mb-3 p-2 rounded text-sm ${
-            typeof priceAdjustmentMessage === 'string' && priceAdjustmentMessage.includes('increased') 
+            priceAdjustmentMessage.includes('increased') 
               ? 'bg-green-50 border border-green-200 text-green-700'
-              : typeof priceAdjustmentMessage === 'string' && priceAdjustmentMessage.includes('decreased')
+              : priceAdjustmentMessage.includes('decreased')
               ? 'bg-amber-50 border border-amber-200 text-amber-700'
               : 'bg-blue-50 border border-blue-200 text-blue-700'
           }`}>
@@ -422,53 +467,56 @@ const OfferRide4: React.FC = () => {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          
-          {/* Left: Details */}
           <div className="bg-white rounded-lg p-4 border border-gray-200">
             <div className="text-sm font-semibold text-gray-800 mb-3">Ride Details</div>
             
-            {/* Route Visualization */}
             <div className="mb-3">
-              {sortedStops.map((stop: any, index: number) => (
-                <React.Fragment key={stop.stopId}>
-                  <div className="flex items-center mb-2">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 text-white text-xs font-bold ${
-                      stop.type === 'ORIGIN' ? 'bg-blue-500' :
-                      stop.type === 'DESTINATION' ? 'bg-red-500' : 'bg-blue-500'
-                    }`}>
-                      {stop.type === 'ORIGIN' ? 'P' : stop.type === 'DESTINATION' ? 'D' : index}
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-xs font-medium text-gray-800">{stop.name}</div>
-                      <div className="text-[10px] text-gray-500 truncate">{stop.address}</div>
-                    </div>
-                  </div>
-                  {index < sortedStops.length - 1 && !isFullCar && (
-                    <div className="flex items-center mb-2 ml-3">
-                      <div className="w-4 h-4 flex items-center justify-center">
-                        <div className="h-4 border-l-2 border-dashed border-gray-300"></div>
+              {sortedStops.map((stop: any, index: number) => {
+                const displayName = getDisplayName(stop);
+                return (
+                  <React.Fragment key={stop.stopId}>
+                    <div className="flex items-center mb-2">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 text-white text-xs font-bold ${
+                        stop.type === 'ORIGIN' ? 'bg-blue-500' :
+                        stop.type === 'DESTINATION' ? 'bg-red-500' : 'bg-blue-500'
+                      }`}>
+                        {stop.type === 'ORIGIN' ? 'P' : stop.type === 'DESTINATION' ? 'D' : index}
                       </div>
-                      <div className="ml-6 flex-1">
-                        <div className="text-[10px] text-gray-400">
-                          Distance: {rideData.routeSegments?.[index]?.distance?.toFixed(1) || '0.0'} km
+                      <div className="flex-1">
+                        <div className="text-xs font-medium text-gray-800">{displayName}</div>
+                        <div className="text-[10px] text-gray-500 capitalize">
+                          {stop.type === 'ORIGIN' ? 'Pickup Point' : 
+                           stop.type === 'DESTINATION' ? 'Drop Point' : 'Intermediate Stop'}
                         </div>
-                        {!isFullCar && (
-                          <div className="text-[10px] text-blue-600 font-medium flex items-center gap-1">
-                            <span>Segment {index + 1} fare:</span>
-                            <span>₹{segmentFares[index]?.toLocaleString() || 0}</span>
-                            <span className="text-[8px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded">Adjustable</span>
-                            {originalSegmentFares[index] && originalSegmentFares[index] !== segmentFares[index] && (
-                              <span className="text-[8px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded ml-1">
-                                Was ₹{originalSegmentFares[index].toLocaleString()}
-                              </span>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
-                  )}
-                </React.Fragment>
-              ))}
+                    {index < sortedStops.length - 1 && !isFullCar && (
+                      <div className="flex items-center mb-2 ml-3">
+                        <div className="w-4 h-4 flex items-center justify-center">
+                          <div className="h-4 border-l-2 border-dashed border-gray-300"></div>
+                        </div>
+                        <div className="ml-6 flex-1">
+                          <div className="text-[10px] text-gray-400">
+                            Distance: {rideData.routeSegments?.[index]?.distance?.toFixed(1) || '0.0'} km
+                          </div>
+                          {!isFullCar && (
+                            <div className="text-[10px] text-blue-600 font-medium flex items-center gap-1">
+                              <span>Segment {index + 1} fare:</span>
+                              <span>₹{segmentFares[index]?.toLocaleString() || 0}</span>
+                              <span className="text-[8px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded">Adjustable</span>
+                              {originalSegmentFares[index] && originalSegmentFares[index] !== segmentFares[index] && (
+                                <span className="text-[8px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded ml-1">
+                                  Was ₹{originalSegmentFares[index].toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </div>
 
             <div className="grid grid-cols-2 gap-2 mb-3">
@@ -497,7 +545,7 @@ const OfferRide4: React.FC = () => {
                 <div>
                   <div className="text-xs font-medium text-green-700">Fixed Main Fare</div>
                   <div className="text-[10px] text-green-600">
-                    {origin?.name} to {destination?.name} · {rideData.seats} seats
+                    {originDisplay} to {destinationDisplay} · {rideData.seats} seats
                   </div>
                 </div>
                 <div className="text-base font-bold text-green-700 flex items-center gap-1">
@@ -513,7 +561,6 @@ const OfferRide4: React.FC = () => {
               )}
             </div>
 
-            {/* Vehicle and Driver Info */}
             <div className="space-y-2">
               {rideData.selectedVehicle && (
                 <div className="p-2 bg-gray-50 border border-gray-200 rounded text-xs">
@@ -562,7 +609,6 @@ const OfferRide4: React.FC = () => {
               )}
             </div>
 
-            {/* Preferences Section */}
             {rideData.preferences && (
               <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded">
                 <div className="text-xs font-medium mb-2 text-blue-700">Ride Preferences</div>
@@ -572,8 +618,8 @@ const OfferRide4: React.FC = () => {
                       <div className="text-[10px] text-blue-600 mb-1">Accessibility:</div>
                       <div className="flex flex-wrap gap-1">
                         {rideData.preferences.accessibility.map((pref: any) => (
-                          <span key={pref.id} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
-                            {pref.text}
+                          <span key={pref.id || pref} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                            {pref.text || pref}
                           </span>
                         ))}
                       </div>
@@ -585,8 +631,8 @@ const OfferRide4: React.FC = () => {
                       <div className="text-[10px] text-blue-600 mb-1">Communication:</div>
                       <div className="flex flex-wrap gap-1">
                         {rideData.preferences.communication.map((pref: any) => (
-                          <span key={pref.id} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
-                            {pref.text}
+                          <span key={pref.id || pref} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                            {pref.text || pref}
                           </span>
                         ))}
                       </div>
@@ -598,8 +644,8 @@ const OfferRide4: React.FC = () => {
                       <div className="text-[10px] text-blue-600 mb-1">General:</div>
                       <div className="flex flex-wrap gap-1">
                         {rideData.preferences.general.map((pref: any) => (
-                          <span key={pref.id} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
-                            {pref.text}
+                          <span key={pref.id || pref} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                            {pref.text || pref}
                           </span>
                         ))}
                       </div>
@@ -611,8 +657,8 @@ const OfferRide4: React.FC = () => {
                       <div className="text-[10px] text-blue-600 mb-1">Ride Comfort:</div>
                       <div className="flex flex-wrap gap-1">
                         {rideData.preferences.ride_comfort.map((pref: any) => (
-                          <span key={pref.id} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
-                            {pref.text}
+                          <span key={pref.id || pref} className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                            {pref.text || pref}
                           </span>
                         ))}
                       </div>
@@ -623,14 +669,12 @@ const OfferRide4: React.FC = () => {
             )}
           </div>
 
-          {/* Right: Fare Adjustment */}
           <div className="bg-white rounded-lg p-4 border border-gray-200">
             <div className="text-sm font-semibold text-gray-800 mb-3">
               {isFullCar ? 'Fare Adjustment' : 'Segment Fare Adjustment'}
             </div>
             
             {isFullCar ? (
-              // Full Car Fare Adjustment
               <div className="space-y-4">
                 <div className="p-3 bg-purple-50 border border-purple-100 rounded">
                   <div className="flex items-center justify-between mb-2">
@@ -697,75 +741,78 @@ const OfferRide4: React.FC = () => {
                 </div>
               </div>
             ) : (
-              // Shared Ride Segment Fare Adjustment
               <div className="space-y-2">
-                {sortedStops.map((stop: any, index: number) => (
-                  <div key={stop.stopId}>
-                    <div className="flex items-center p-2 bg-gray-50 rounded border border-gray-200">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 text-white text-xs font-bold ${
-                        stop.type === 'ORIGIN' ? 'bg-blue-500' :
-                        stop.type === 'DESTINATION' ? 'bg-red-500' : 'bg-blue-500'
-                      }`}>
-                        {stop.type === 'ORIGIN' ? 'P' : stop.type === 'DESTINATION' ? 'D' : index}
-                      </div>
-                      
-                      <div className="flex-1">
-                        <div className="text-xs font-medium">{stop.name}</div>
-                        <div className="text-[10px] text-gray-500">{stop.type.toLowerCase()}</div>
-                      </div>
-                      
-                      {index < sortedStops.length - 1 && (
-                        <div className="text-right flex items-center gap-1">
-                          <div>
-                            <div className="text-[10px] text-gray-500">to next stop</div>
-                            <div className="text-xs font-bold flex items-center justify-end gap-1">
-                              <IndianRupee size={10} />
-                              <span className="text-blue-600">
-                                {segmentFares[index]?.toLocaleString() || '0'}
-                              </span>
+                {sortedStops.map((stop: any, index: number) => {
+                  const displayName = getDisplayName(stop);
+                  return (
+                    <div key={stop.stopId}>
+                      <div className="flex items-center p-2 bg-gray-50 rounded border border-gray-200">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-2 text-white text-xs font-bold ${
+                          stop.type === 'ORIGIN' ? 'bg-blue-500' :
+                          stop.type === 'DESTINATION' ? 'bg-red-500' : 'bg-blue-500'
+                        }`}>
+                          {stop.type === 'ORIGIN' ? 'P' : stop.type === 'DESTINATION' ? 'D' : index}
+                        </div>
+                        
+                        <div className="flex-1">
+                          <div className="text-xs font-medium">{displayName}</div>
+                          <div className="text-[10px] text-gray-500 capitalize">
+                            {stop.type === 'ORIGIN' ? 'Pickup' : 
+                             stop.type === 'DESTINATION' ? 'Drop' : 'Stop'}
+                          </div>
+                        </div>
+                        
+                        {index < sortedStops.length - 1 && (
+                          <div className="text-right flex items-center gap-1">
+                            <div>
+                              <div className="text-[10px] text-gray-500">to next stop</div>
+                              <div className="text-xs font-bold flex items-center justify-end gap-1">
+                                <IndianRupee size={10} />
+                                <span className="text-blue-600">
+                                  {segmentFares[index]?.toLocaleString() || '0'}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                          
-                          {/* Fare Adjustment Buttons */}
-                          <div className="flex flex-col gap-0.5 ml-1">
-                            <button
-                              onClick={() => increaseSegmentFare(index)}
-                              className="w-5 h-5 rounded-full bg-green-100 hover:bg-green-200 flex items-center justify-center"
-                              title="Increase segment fare by ₹100"
-                            >
-                              <Plus size={10} className="text-green-700" />
-                            </button>
-                            <button
-                              onClick={() => decreaseSegmentFare(index)}
-                              disabled={(segmentFares[index] || 0) <= 100}
-                              className="w-5 h-5 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="Decrease segment fare by ₹100"
-                            >
-                              <Minus size={10} className="text-red-700" />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Segment Information */}
-                    {index < sortedStops.length - 1 && (
-                      <div className="ml-8 mb-1">
-                        <div className="text-[9px] text-gray-500">
-                          Distance: {rideData.routeSegments?.[index]?.distance?.toFixed(1) || '0.0'} km
-                        </div>
-                        <div className="text-[9px] text-blue-600">
-                          Adjustable • Main fare remains fixed
-                        </div>
-                        {originalSegmentFares[index] && originalSegmentFares[index] !== segmentFares[index] && (
-                          <div className="text-[9px] text-amber-600">
-                            Originally: ₹{originalSegmentFares[index].toLocaleString()}
+                            
+                            <div className="flex flex-col gap-0.5 ml-1">
+                              <button
+                                onClick={() => increaseSegmentFare(index)}
+                                className="w-5 h-5 rounded-full bg-green-100 hover:bg-green-200 flex items-center justify-center"
+                                title="Increase segment fare by ₹100"
+                              >
+                                <Plus size={10} className="text-green-700" />
+                              </button>
+                              <button
+                                onClick={() => decreaseSegmentFare(index)}
+                                disabled={(segmentFares[index] || 0) <= 100}
+                                className="w-5 h-5 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Decrease segment fare by ₹100"
+                              >
+                                <Minus size={10} className="text-red-700" />
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                ))}
+                      
+                      {index < sortedStops.length - 1 && (
+                        <div className="ml-8 mb-1">
+                          <div className="text-[9px] text-gray-500">
+                            Distance: {rideData.routeSegments?.[index]?.distance?.toFixed(1) || '0.0'} km
+                          </div>
+                          <div className="text-[9px] text-blue-600">
+                            Adjustable • Main fare remains fixed
+                          </div>
+                          {originalSegmentFares[index] && originalSegmentFares[index] !== segmentFares[index] && (
+                            <div className="text-[9px] text-amber-600">
+                              Originally: ₹{originalSegmentFares[index].toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
